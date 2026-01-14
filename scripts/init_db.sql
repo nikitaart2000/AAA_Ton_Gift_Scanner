@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS market_events (
     price DECIMAL(12, 2),
     price_old DECIMAL(12, 2),
     source VARCHAR(20), -- swift_gifts, tonnel
+    marketplace VARCHAR(20), -- portals, mrkt, tonnel, getgems, fragment
     raw_data JSONB,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     PRIMARY KEY (event_time, id)
@@ -45,6 +46,7 @@ CREATE TABLE IF NOT EXISTS active_listings (
     export_at TIMESTAMPTZ,
     last_updated TIMESTAMPTZ DEFAULT NOW(),
     source VARCHAR(20),
+    marketplace VARCHAR(20), -- portals, mrkt, tonnel, getgems, fragment
     raw_data JSONB
 );
 

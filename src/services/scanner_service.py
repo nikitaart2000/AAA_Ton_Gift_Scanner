@@ -60,9 +60,10 @@ class ScannerService:
     async def handle_market_event(self, event: MarketEvent):
         """Handle a market event from Swift Gifts."""
         try:
+            marketplace_str = event.marketplace.value if event.marketplace else None
             logger.info(
                 f"Event: {event.event_type.value} | {event.model} | "
-                f"{event.backdrop or 'no_bg'} | {event.price} TON"
+                f"{event.backdrop or 'no_bg'} | {event.price} TON | {marketplace_str or 'unknown'}"
             )
 
             # Save to database
@@ -71,9 +72,9 @@ class ScannerService:
                 query = text("""
                 INSERT INTO market_events
                 (event_time, event_type, gift_id, gift_name, model, backdrop, pattern, number,
-                 price, price_old, source, raw_data)
+                 price, price_old, source, marketplace, raw_data)
                 VALUES (:event_time, :event_type, :gift_id, :gift_name, :model, :backdrop,
-                        :pattern, :number, :price, :price_old, :source, :raw_data)
+                        :pattern, :number, :price, :price_old, :source, :marketplace, :raw_data)
                 RETURNING id
                 """)
 
@@ -91,6 +92,7 @@ class ScannerService:
                         "price": float(event.price),
                         "price_old": float(event.price_old) if event.price_old else None,
                         "source": event.source.value,
+                        "marketplace": marketplace_str,
                         "raw_data": None,
                     },
                 )
@@ -106,12 +108,13 @@ class ScannerService:
                     listing_query = text("""
                     INSERT INTO active_listings
                     (gift_id, gift_name, model, backdrop, pattern, number, price,
-                     listed_at, source, raw_data, last_updated)
+                     listed_at, source, marketplace, raw_data, last_updated)
                     VALUES (:gift_id, :gift_name, :model, :backdrop, :pattern, :number, :price,
-                            :listed_at, :source, :raw_data, NOW())
+                            :listed_at, :source, :marketplace, :raw_data, NOW())
                     ON CONFLICT (gift_id)
                     DO UPDATE SET
                         price = EXCLUDED.price,
+                        marketplace = EXCLUDED.marketplace,
                         last_updated = NOW()
                     """)
 
@@ -127,6 +130,7 @@ class ScannerService:
                             "price": float(event.price),
                             "listed_at": event.event_time,
                             "source": event.source.value,
+                            "marketplace": marketplace_str,
                             "raw_data": None,
                         },
                     )

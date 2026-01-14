@@ -169,6 +169,7 @@ class AlertEngine:
             timestamp=datetime.now(timezone.utc),
             source=event.source,
             event_type=event.event_type,
+            marketplace=event.marketplace,
         )
 
         # Set cooldown

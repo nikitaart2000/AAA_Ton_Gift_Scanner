@@ -3,36 +3,67 @@
 import logging
 from datetime import datetime, timedelta, timezone
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
-from src.core.models import Alert
+from src.core.models import Alert, Marketplace
 from src.storage.postgres import db
 from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
 
+# Marketplace button labels
+MARKETPLACE_LABELS = {
+    Marketplace.PORTALS: "CryptoBot",
+    Marketplace.MRKT: "MRKT",
+    Marketplace.TONNEL: "Tonnel",
+    Marketplace.GETGEMS: "GetGems",
+    Marketplace.FRAGMENT: "Fragment",
+}
+
 
 def get_alert_keyboard(alert: Alert) -> InlineKeyboardMarkup:
     """Create inline keyboard for alert."""
-    # Generate gift URL (opens in Telegram internal browser)
-    # Прямая ссылка - Telegram сам откроет во встроенном браузере
-    gift_url = f"https://fragment.com/gift/{alert.gift_id}"
+    buttons = []
 
-    # Generate Tonnel Mini App URL (opens Telegram Mini App directly!)
+    # Row 1: Marketplace links
+    marketplace_buttons = []
+
+    # Main marketplace button (where the item is listed)
+    if alert.marketplace:
+        main_url = alert.marketplace_url
+        label = MARKETPLACE_LABELS.get(alert.marketplace, alert.marketplace.value.upper())
+        if main_url:
+            marketplace_buttons.append(
+                InlineKeyboardButton(text=f"🎁 {label}", url=main_url)
+            )
+
+    # Tonnel Mini App button (for cross-marketplace search)
     tonnel_url = f"https://t.me/TonnelMarketBot/market?startapp={alert.gift_id}"
+    marketplace_buttons.append(
+        InlineKeyboardButton(text="🔍 Tonnel", url=tonnel_url)
+    )
 
-    buttons = [
-        [
-            InlineKeyboardButton(text="🎁 ОТКРЫТЬ", url=gift_url),
-            InlineKeyboardButton(text="🔍 TONNEL", url=tonnel_url),
-        ],
-        [
-            InlineKeyboardButton(
-                text="⭐ В ИЗБРАННОЕ", callback_data=f"watch:{alert.asset_key}"
-            ),
-            InlineKeyboardButton(
-                text="🔇 ЗАГЛУШИТЬ 2Ч", callback_data=f"mute:{alert.asset_key}:2h"
-            ),
-        ],
-    ]
+    # Fragment fallback link (if not already the main marketplace)
+    if alert.marketplace != Marketplace.FRAGMENT:
+        fragment_url = f"https://fragment.com/gift/{alert.gift_id}"
+        marketplace_buttons.append(
+            InlineKeyboardButton(text="💎 Fragment", url=fragment_url)
+        )
+
+    # Limit to 3 buttons per row
+    if len(marketplace_buttons) > 3:
+        marketplace_buttons = marketplace_buttons[:3]
+
+    if marketplace_buttons:
+        buttons.append(marketplace_buttons)
+
+    # Row 2: Actions
+    buttons.append([
+        InlineKeyboardButton(
+            text="⭐ В ИЗБРАННОЕ", callback_data=f"watch:{alert.asset_key}"
+        ),
+        InlineKeyboardButton(
+            text="🔇 ЗАГЛУШИТЬ 2Ч", callback_data=f"mute:{alert.asset_key}:2h"
+        ),
+    ])
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 

@@ -186,6 +186,18 @@ class TelegramBot:
         time_ago = self._time_ago(alert.event_time if alert.event_time else alert.timestamp)
         lines.append(f"⏱️ <i>Листнули {time_ago}</i>")
 
+        # Marketplace info
+        if alert.marketplace:
+            marketplace_names = {
+                "portals": "CryptoBot (Portals)",
+                "mrkt": "MRKT",
+                "tonnel": "Tonnel",
+                "getgems": "GetGems",
+                "fragment": "Fragment",
+            }
+            mp_name = marketplace_names.get(alert.marketplace.value, alert.marketplace.value.upper())
+            lines.append(f"🏪 <i>Маркет: {mp_name}</i>")
+
         return "\n".join(lines)
 
     def _time_ago(self, timestamp) -> str:

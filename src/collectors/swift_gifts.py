@@ -7,9 +7,12 @@ from decimal import Decimal
 from typing import Optional, Callable, Awaitable, List
 import aiohttp
 from src.config import settings
-from src.core.models import MarketEvent, EventType, EventSource
+from src.core.models import MarketEvent, EventType, EventSource, Marketplace
 
 logger = logging.getLogger(__name__)
+
+# Supported marketplaces via Swift Gifts API
+SUPPORTED_SERVICES = ["portals", "mrkt"]
 
 
 class SwiftGiftsCollector:
@@ -21,17 +24,10 @@ class SwiftGiftsCollector:
         self.session: Optional[aiohttp.ClientSession] = None
         self.running = False
         self.event_handler: Optional[Callable[[MarketEvent], Awaitable[None]]] = None
-        self.last_event_ids: dict[str, set] = {
-            "buy": set(),
-            "listing": set(),
-            "change_price": set(),
-        }
-        self.max_event_cache = 1000  # Keep track of last N event IDs
-        self.api_was_down: dict[str, bool] = {
-            "buy": False,
-            "listing": False,
-            "change_price": False,
-        }  # Track API down state per event type
+        # Track events per service + event_type combo
+        self.last_event_ids: dict[str, set] = {}
+        self.max_event_cache = 1000  # Keep track of last N event IDs per combo
+        self.api_was_down: dict[str, bool] = {}  # Track API down state per service+type
 
     async def start(self, event_handler: Callable[[MarketEvent], Awaitable[None]]):
         """Start collecting events."""
@@ -42,14 +38,15 @@ class SwiftGiftsCollector:
             headers={"X-Api-Key": self.api_key, "Content-Type": "application/json"}
         )
 
-        logger.info("Swift Gifts collector started")
+        logger.info(f"Swift Gifts collector started (services: {SUPPORTED_SERVICES})")
 
-        # Start polling for all event types
-        await asyncio.gather(
-            self._poll_events("buy"),
-            self._poll_events("listing"),
-            self._poll_events("change_price"),
-        )
+        # Start polling for all services and event types
+        tasks = []
+        for service in SUPPORTED_SERVICES:
+            for event_type in ["buy", "listing", "change_price"]:
+                tasks.append(self._poll_events(service, event_type))
+
+        await asyncio.gather(*tasks)
 
     async def stop(self):
         """Stop collecting events."""
@@ -58,10 +55,18 @@ class SwiftGiftsCollector:
             await self.session.close()
         logger.info("Swift Gifts collector stopped")
 
-    async def _poll_events(self, event_type: str):
-        """Poll for events of a specific type."""
-        endpoint = f"{self.base_url}/api/actions/services/portals"
-        poll_interval = 2  # Poll every 2 seconds (3 types × 0.5 RPS = 1.5 RPS total)
+    async def _poll_events(self, service: str, event_type: str):
+        """Poll for events of a specific type from a specific service."""
+        endpoint = f"{self.base_url}/api/actions/services/{service}"
+        # Poll interval: 2 services × 3 types = 6 pollers, ~0.5s each = 3 RPS total
+        poll_interval = 2
+        cache_key = f"{service}:{event_type}"
+
+        # Initialize tracking dicts for this service+type combo
+        if cache_key not in self.last_event_ids:
+            self.last_event_ids[cache_key] = set()
+        if cache_key not in self.api_was_down:
+            self.api_was_down[cache_key] = False
 
         while self.running:
             try:
@@ -76,81 +81,91 @@ class SwiftGiftsCollector:
                         data = await response.json()
 
                         # Check if API was previously down and now recovered
-                        if self.api_was_down.get(event_type, False):
-                            logger.info(f"✅ Swift Gifts API RECOVERED for {event_type} events!")
-                            self.api_was_down[event_type] = False
+                        if self.api_was_down.get(cache_key, False):
+                            logger.info(f"Swift Gifts API RECOVERED for {service}/{event_type}!")
+                            self.api_was_down[cache_key] = False
 
-                        await self._process_response(data, event_type)
+                        await self._process_response(data, event_type, service)
                     else:
                         error_text = await response.text()
 
                         # Mark API as down and log with enhanced visibility
-                        if not self.api_was_down.get(event_type, False):
+                        if not self.api_was_down.get(cache_key, False):
                             logger.error(
-                                f"❌ Swift Gifts API DOWN for {event_type}: {response.status} - "
+                                f"Swift Gifts API DOWN for {service}/{event_type}: {response.status} - "
                                 f"Will retry every {poll_interval}s"
                             )
-                            self.api_was_down[event_type] = True
+                            self.api_was_down[cache_key] = True
                         else:
                             # Less verbose logging for continuing failures
                             logger.debug(
-                                f"Swift Gifts API still down for {event_type}: {response.status}"
+                                f"Swift Gifts API still down for {service}/{event_type}: {response.status}"
                             )
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 # Mark API as down on exception
-                if not self.api_was_down.get(event_type, False):
-                    logger.error(f"❌ Swift Gifts API ERROR for {event_type}: {e} - Will retry")
-                    self.api_was_down[event_type] = True
+                if not self.api_was_down.get(cache_key, False):
+                    logger.error(f"Swift Gifts API ERROR for {service}/{event_type}: {e} - Will retry")
+                    self.api_was_down[cache_key] = True
                 else:
-                    logger.debug(f"Error polling {event_type} events: {e}")
+                    logger.debug(f"Error polling {service}/{event_type} events: {e}")
 
             await asyncio.sleep(poll_interval)
 
-    async def _process_response(self, data: dict | list, event_type: str):
+    async def _process_response(self, data: dict | list, event_type: str, service: str):
         """Process API response and extract events."""
-        events = []
+        events_with_marketplace = []
+        cache_key = f"{service}:{event_type}"
 
-        # Extract events from markets structure
+        # Initialize cache if not exists (for direct calls without _poll_events)
+        if cache_key not in self.last_event_ids:
+            self.last_event_ids[cache_key] = set()
+
+        # Extract events from markets structure, preserving marketplace info
         if isinstance(data, dict) and "markets" in data:
             for market in data.get("markets", []):
+                provider = market.get("provider", service)
                 market_data = market.get("data", [])
-                events.extend(market_data)
+                for item in market_data:
+                    events_with_marketplace.append((item, provider))
         elif isinstance(data, list):
-            events = data
+            for item in data:
+                events_with_marketplace.append((item, service))
         elif isinstance(data, dict):
             # Check for common response structures
             if "events" in data:
-                events = data["events"]
+                for item in data["events"]:
+                    events_with_marketplace.append((item, service))
             elif "data" in data:
-                events = data["data"]
+                for item in data["data"]:
+                    events_with_marketplace.append((item, service))
             else:
                 # Treat the dict itself as a single event
-                events = [data]
+                events_with_marketplace.append((data, service))
 
-        for event_data in events:
+        for event_data, marketplace_name in events_with_marketplace:
             try:
-                # Generate unique event ID
-                event_id = self._generate_event_id(event_data, event_type)
+                # Generate unique event ID (include marketplace to avoid dupes across markets)
+                event_id = self._generate_event_id(event_data, event_type, marketplace_name)
 
                 # Skip if we've already processed this event
-                if event_id in self.last_event_ids[event_type]:
+                if event_id in self.last_event_ids[cache_key]:
                     continue
 
-                # Parse event
-                event = self._parse_event(event_data, event_type)
+                # Parse event with marketplace info
+                event = self._parse_event(event_data, event_type, marketplace_name)
                 if event:
                     # Track event ID
-                    self.last_event_ids[event_type].add(event_id)
+                    self.last_event_ids[cache_key].add(event_id)
 
                     # Limit cache size
-                    if len(self.last_event_ids[event_type]) > self.max_event_cache:
+                    if len(self.last_event_ids[cache_key]) > self.max_event_cache:
                         # Remove oldest half
-                        old_ids = list(self.last_event_ids[event_type])[: self.max_event_cache // 2]
+                        old_ids = list(self.last_event_ids[cache_key])[: self.max_event_cache // 2]
                         for old_id in old_ids:
-                            self.last_event_ids[event_type].discard(old_id)
+                            self.last_event_ids[cache_key].discard(old_id)
 
                     # Send to handler
                     if self.event_handler:
@@ -159,16 +174,16 @@ class SwiftGiftsCollector:
             except Exception as e:
                 logger.error(f"Error processing event: {e}", exc_info=True)
 
-    def _generate_event_id(self, event_data: dict, event_type: str) -> str:
+    def _generate_event_id(self, event_data: dict, event_type: str, marketplace: str = "") -> str:
         """Generate unique event ID."""
-        # Use slug + timestamp + price as unique identifier
+        # Use marketplace + slug + timestamp + price as unique identifier
         slug = event_data.get("slug") or ""
         timestamp = event_data.get("date") or ""
         price = event_data.get("price_ton") or ""
 
-        return f"{event_type}:{slug}:{timestamp}:{price}"
+        return f"{marketplace}:{event_type}:{slug}:{timestamp}:{price}"
 
-    def _parse_event(self, event_data: dict, event_type: str) -> Optional[MarketEvent]:
+    def _parse_event(self, event_data: dict, event_type: str, marketplace_name: str = "") -> Optional[MarketEvent]:
         """Parse event data into MarketEvent."""
         try:
             # Extract slug as gift_id
@@ -217,6 +232,14 @@ class SwiftGiftsCollector:
                 attributes.get("symbol", {}).get("value") if "symbol" in attributes else None
             )
 
+            # Map marketplace name to enum
+            marketplace = None
+            if marketplace_name:
+                try:
+                    marketplace = Marketplace(marketplace_name.lower())
+                except ValueError:
+                    marketplace = Marketplace.UNKNOWN
+
             return MarketEvent(
                 event_time=event_time,
                 event_type=EventType(event_type),
@@ -230,6 +253,7 @@ class SwiftGiftsCollector:
                 price_old=price_old,
                 photo_url=photo_url,
                 source=EventSource.SWIFT_GIFTS,
+                marketplace=marketplace,
                 raw_data=event_data,
             )
 

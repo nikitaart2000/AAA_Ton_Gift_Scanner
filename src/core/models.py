@@ -25,6 +25,36 @@ class EventSource(str, Enum):
     THERMOS = "thermos"
 
 
+class Marketplace(str, Enum):
+    """Marketplace where the item is listed."""
+
+    PORTALS = "portals"
+    MRKT = "mrkt"
+    TONNEL = "tonnel"
+    GETGEMS = "getgems"
+    FRAGMENT = "fragment"
+    UNKNOWN = "unknown"
+
+    @property
+    def url_base(self) -> str:
+        """Get marketplace URL base."""
+        urls = {
+            "portals": "https://t.me/CryptoBot?start=gift-",
+            "mrkt": "https://mrkt.ton.org/gift/",
+            "tonnel": "https://market.tonnel.network/gift/",
+            "getgems": "https://getgems.io/collection/",
+            "fragment": "https://fragment.com/gift/",
+        }
+        return urls.get(self.value, "")
+
+    def get_gift_url(self, gift_id: str) -> str:
+        """Get full URL for a gift."""
+        base = self.url_base
+        if not base:
+            return ""
+        return f"{base}{gift_id}"
+
+
 class ConfidenceLevel(str, Enum):
     """Confidence level for analytics."""
 
@@ -76,7 +106,15 @@ class MarketEvent(BaseModel):
     price_old: Optional[Decimal] = None
     photo_url: Optional[str] = None
     source: EventSource
+    marketplace: Optional[Marketplace] = None
     raw_data: Optional[Dict[str, Any]] = None
+
+    @property
+    def marketplace_url(self) -> str:
+        """Get URL to view this item on marketplace."""
+        if self.marketplace:
+            return self.marketplace.get_gift_url(self.gift_id)
+        return ""
 
     @property
     def asset_key(self) -> str:
@@ -241,6 +279,14 @@ class Alert(BaseModel):
     event_time: Optional[datetime] = None  # Original event time from market
     source: EventSource
     event_type: EventType
+    marketplace: Optional[Marketplace] = None
+
+    @property
+    def marketplace_url(self) -> str:
+        """Get URL to view this item on marketplace."""
+        if self.marketplace:
+            return self.marketplace.get_gift_url(self.gift_id)
+        return ""
 
     @property
     def is_black_pack(self) -> bool:
