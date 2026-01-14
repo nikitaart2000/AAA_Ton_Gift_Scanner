@@ -16,9 +16,13 @@ import type { Deal, MarketOverview } from './types';
 import './App.css';
 
 function App() {
+  console.log('🎯 App component initializing...');
+
   const [deals, setDeals] = useState<Deal[]>([]);
   const [overview, setOverview] = useState<MarketOverview | null>(null);
   const [loading, setLoading] = useState(true);
+
+  console.log('🎯 Initial loading state:', loading);
   const [fatDeal, setFatDeal] = useState<Deal | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'all' | 'profitable' | 'black'>('all');
