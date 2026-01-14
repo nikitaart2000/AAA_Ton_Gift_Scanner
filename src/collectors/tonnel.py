@@ -350,16 +350,22 @@ class TonnelCollector:
             loop = asyncio.get_event_loop()
 
             def fetch_sync():
-                return saleHistory(
-                    authData=self.auth_data,
-                    page=page,
-                    limit=limit,
-                    type=sale_type,
-                    sort="latest",
-                    gift_name=gift_name or "",
-                    model=model or "",
-                    backdrop=backdrop or "",
-                )
+                # Build kwargs - only include filters if specified
+                kwargs = {
+                    "authData": self.auth_data,
+                    "page": page,
+                    "limit": limit,
+                    "type": sale_type,
+                    "sort": "latest",
+                }
+                if gift_name:
+                    kwargs["gift_name"] = gift_name
+                if model:
+                    kwargs["model"] = model
+                if backdrop:
+                    kwargs["backdrop"] = backdrop
+
+                return saleHistory(**kwargs)
 
             sales_data = await loop.run_in_executor(None, fetch_sync)
 
@@ -382,6 +388,11 @@ class TonnelCollector:
     def _parse_sale_to_event(self, sale_data: dict) -> Optional[MarketEvent]:
         """Parse Tonnel sale data into MarketEvent."""
         try:
+            # Skip if not a dict (could be error response keys)
+            if not isinstance(sale_data, dict):
+                logger.debug(f"Skipping non-dict sale data: {sale_data}")
+                return None
+
             # Extract gift_id
             gift_id = sale_data.get("gift_id") or sale_data.get("asset") or sale_data.get("slug")
             if not gift_id:
@@ -393,9 +404,9 @@ class TonnelCollector:
                 return None
             price = Decimal(str(price_value))
 
-            # Parse timestamp
+            # Parse timestamp - tonnelmp uses 'timestamp' field in ISO format
             event_time = None
-            ts = sale_data.get("date") or sale_data.get("sold_at") or sale_data.get("timestamp")
+            ts = sale_data.get("timestamp") or sale_data.get("date") or sale_data.get("sold_at")
             if ts:
                 event_time = self._parse_timestamp(ts)
             if not event_time:
@@ -403,9 +414,18 @@ class TonnelCollector:
 
             # Extract metadata
             gift_name = sale_data.get("gift_name") or sale_data.get("collection")
-            model = sale_data.get("model")
-            backdrop = sale_data.get("backdrop")
-            pattern = sale_data.get("pattern") or sale_data.get("symbol")
+
+            # Model and backdrop from tonnelmp include rarity % - extract just the name
+            model_raw = sale_data.get("model") or ""
+            backdrop_raw = sale_data.get("backdrop") or ""
+            symbol_raw = sale_data.get("symbol") or ""
+
+            # Parse "Wizard (1.2%)" -> "Wizard"
+            model = model_raw.split("(")[0].strip() if model_raw else None
+            backdrop = backdrop_raw.split("(")[0].strip() if backdrop_raw else None
+            pattern = symbol_raw.split("(")[0].strip() if symbol_raw else None
+
+            # Extract number
             number = sale_data.get("gift_num") or sale_data.get("number")
 
             return MarketEvent(
@@ -413,9 +433,9 @@ class TonnelCollector:
                 event_type=EventType.BUY,
                 gift_id=str(gift_id),
                 gift_name=gift_name,
-                model=model,
-                backdrop=backdrop,
-                pattern=pattern,
+                model=model if model else None,
+                backdrop=backdrop if backdrop else None,
+                pattern=pattern if pattern else None,
                 number=number,
                 price=price,
                 source=EventSource.TONNEL,
