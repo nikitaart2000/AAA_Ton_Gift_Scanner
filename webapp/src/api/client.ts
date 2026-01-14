@@ -6,6 +6,7 @@ import type { DealsResponse, MarketOverview } from '../types';
 
 // API URL - используем относительный путь для Vite proxy, или переопределяем через environment variable
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
+console.log('🔧 API_BASE configured as:', API_BASE);
 
 export class ApiClient {
   async getDeals(params?: {
@@ -25,9 +26,20 @@ export class ApiClient {
       })
     );
     const query = new URLSearchParams(filteredParams as any).toString();
-    const response = await fetch(`${API_BASE}/deals/feed?${query}`);
-    if (!response.ok) throw new Error('Не удалось загрузить дилы');
-    return response.json();
+    const url = `${API_BASE}/deals/feed?${query}`;
+    console.log('📡 Fetching deals from:', url);
+
+    const response = await fetch(url);
+    console.log('📡 Response status:', response.status, response.statusText);
+
+    if (!response.ok) {
+      console.error('❌ Failed to fetch deals:', response.status, response.statusText);
+      throw new Error('Не удалось загрузить дилы');
+    }
+
+    const data = await response.json();
+    console.log('📡 Received deals:', data.total, 'total,', data.deals.length, 'in response');
+    return data;
   }
 
   async getMarketOverview(): Promise<MarketOverview> {
