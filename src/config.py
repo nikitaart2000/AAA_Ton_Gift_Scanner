@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     TONNEL_BASE_URL: str = "https://gifts2.tonnel.network"
     TONNEL_AUTH_DATA: str
 
+    # TON API (for on-chain NFT data)
+    TON_API_KEY: str = ""
+    TON_API_BASE_URL: str = "https://tonapi.io"
+
     # Telegram Bot
     TELEGRAM_BOT_TOKEN: str = ""
     TELEGRAM_WHITELIST: str = ""

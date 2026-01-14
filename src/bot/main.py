@@ -10,6 +10,7 @@ from src.config import settings
 from src.core.models import Alert
 from src.bot.handlers import start, alerts
 from src.bot.keyboards import get_main_menu
+from src.bot.whitelist import WhitelistMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,10 @@ class TelegramBot:
         self.dp = Dispatcher(storage=MemoryStorage())
         self.running = False
 
+        # Register whitelist middleware
+        self.dp.message.middleware(WhitelistMiddleware())
+        self.dp.callback_query.middleware(WhitelistMiddleware())
+
         # Register handlers
         self._register_handlers()
 
@@ -35,6 +40,7 @@ class TelegramBot:
         self.dp.message.register(start.cmd_help, Command("help"))
         self.dp.message.register(start.cmd_features, Command("features"))
         self.dp.message.register(start.cmd_stats, Command("stats"))
+        self.dp.message.register(start.cmd_onchain, Command("onchain"))
 
         # Callback handlers for inline buttons
         self.dp.callback_query.register(alerts.handle_mute, F.data.startswith("mute:"))

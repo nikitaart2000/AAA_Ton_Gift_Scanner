@@ -12,16 +12,7 @@ logger = logging.getLogger(__name__)
 
 async def cmd_start(message: Message):
     """Handle /start command."""
-    user_id = message.from_user.id
-
-    # Check whitelist
-    if user_id not in settings.whitelist_ids:
-        await message.answer(
-            "⛔ Сорян, бот приватный.\n"
-            "Только для своих."
-        )
-        return
-
+    # Whitelist check is handled by middleware
     welcome_text = (
         "🎯 <b>AAA TON GIFTS SCANNER</b>\n\n"
         "Приветствую в твоём личном скане гифтов, бро!\n\n"
@@ -35,7 +26,8 @@ async def cmd_start(message: Message):
         "<b>Команды:</b>\n"
         "/help - Помощь по использованию\n"
         "/features - 🔥 ВСЕ ФИЧИ И ПРЕИМУЩЕСТВА\n"
-        "/stats - Статистика рынка\n\n"
+        "/stats - Статистика рынка\n"
+        "/onchain - ⛓️ On-chain NFT статистика\n\n"
         "Готов ловить дилы! Поехали нахуй! 💎"
     )
 
@@ -44,11 +36,7 @@ async def cmd_start(message: Message):
 
 async def cmd_help(message: Message):
     """Handle /help command."""
-    user_id = message.from_user.id
-
-    if user_id not in settings.whitelist_ids:
-        return
-
+    # Whitelist check is handled by middleware
     help_text = (
         "<b>🎯 AAA TON GIFTS SCANNER - ПОМОЩЬ</b>\n\n"
         "<b>Как работает:</b>\n"
@@ -76,7 +64,8 @@ async def cmd_help(message: Message):
         "/start - Запустить бота\n"
         "/help - Показать эту помощь\n"
         "/features - 🔥 Все фичи и преимущества бота\n"
-        "/stats - Посмотреть статистику рынка"
+        "/stats - Посмотреть статистику рынка\n"
+        "/onchain - ⛓️ On-chain NFT статистика (блокчейн)"
     )
 
     await message.answer(help_text, parse_mode="HTML")
@@ -84,11 +73,7 @@ async def cmd_help(message: Message):
 
 async def cmd_features(message: Message):
     """Handle /features command - show all bot features and advantages."""
-    user_id = message.from_user.id
-
-    if user_id not in settings.whitelist_ids:
-        return
-
+    # Whitelist check is handled by middleware
     features_text = (
         "<b>🚀 AAA TON GIFTS SCANNER - ВСЕ ФИЧИ</b>\n\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -259,11 +244,7 @@ async def cmd_features(message: Message):
 
 async def cmd_stats(message: Message):
     """Handle /stats command."""
-    user_id = message.from_user.id
-
-    if user_id not in settings.whitelist_ids:
-        return
-
+    # Whitelist check is handled by middleware
     try:
         # Get statistics from database
         async for session in db.get_session():
@@ -304,6 +285,11 @@ async def cmd_stats(message: Message):
             result = await session.execute(query)
             prices = result.fetchone()
 
+        # Format prices safely (handle None values)
+        avg_price = f"{prices[0]:.2f}" if prices[0] is not None else "N/A"
+        min_price = f"{prices[1]:.2f}" if prices[1] is not None else "N/A"
+        max_price = f"{prices[2]:.2f}" if prices[2] is not None else "N/A"
+
         stats_text = (
             "<b>📊 СТАТИСТИКА РЫНКА (24ч)</b>\n\n"
             f"<b>События:</b>\n"
@@ -315,9 +301,9 @@ async def cmd_stats(message: Message):
             f"├─ Всего листингов: {active_listings:,}\n"
             f"└─ 🖤 Black Pack: {black_pack_listings:,}\n\n"
             f"<b>Диапазон цен:</b>\n"
-            f"├─ Средняя: {prices[0]:.2f} TON\n"
-            f"├─ Самая низкая: {prices[1]:.2f} TON\n"
-            f"└─ Самая высокая: {prices[2]:.2f} TON\n\n"
+            f"├─ Средняя: {avg_price} TON\n"
+            f"├─ Самая низкая: {min_price} TON\n"
+            f"└─ Самая высокая: {max_price} TON\n\n"
             f"<i>Сканер работает 24/7, барыжим нахуй! 🚀</i>"
         )
 
@@ -326,3 +312,82 @@ async def cmd_stats(message: Message):
     except Exception as e:
         logger.error(f"Error getting stats: {e}", exc_info=True)
         await message.answer("❌ Ошибка при получении статистики. Попробуй позже, бро.")
+
+
+async def cmd_onchain(message: Message):
+    """Handle /onchain command - show on-chain NFT statistics."""
+    try:
+        async for session in db.get_session():
+            # Total on-chain events
+            query = text("""
+            SELECT
+                COUNT(*) as total,
+                SUM(CASE WHEN event_type = 'buy' THEN 1 ELSE 0 END) as buys,
+                COUNT(DISTINCT gift_name) as collections
+            FROM market_events
+            WHERE source = 'ton_api'
+            AND event_time >= NOW() - INTERVAL '24 hours'
+            """)
+            result = await session.execute(query)
+            stats = result.fetchone()
+
+            # Total on-chain events all time
+            query = text("""
+            SELECT COUNT(*) FROM market_events WHERE source = 'ton_api'
+            """)
+            result = await session.execute(query)
+            total_all_time = result.scalar() or 0
+
+            # Top collections by volume (24h)
+            query = text("""
+            SELECT gift_name, COUNT(*) as sales, AVG(price) as avg_price
+            FROM market_events
+            WHERE source = 'ton_api'
+            AND event_type = 'buy'
+            AND event_time >= NOW() - INTERVAL '24 hours'
+            GROUP BY gift_name
+            ORDER BY sales DESC
+            LIMIT 5
+            """)
+            result = await session.execute(query)
+            top_collections = result.fetchall()
+
+        total_24h = stats[0] or 0
+        buys_24h = stats[1] or 0
+        collections_24h = stats[2] or 0
+
+        onchain_text = (
+            "<b>⛓️ ON-CHAIN СТАТИСТИКА (NFT)</b>\n\n"
+            "<b>ℹ️ Что это:</b>\n"
+            "On-chain - это подарки Telegram, которые были\n"
+            "выведены на блокчейн TON как NFT.\n"
+            "Их можно продавать на GetGems и других\n"
+            "NFT маркетплейсах.\n\n"
+            f"<b>📊 За 24 часа:</b>\n"
+            f"├─ Всего событий: {total_24h:,}\n"
+            f"├─ 💎 Продаж NFT: {buys_24h:,}\n"
+            f"└─ 📁 Коллекций активно: {collections_24h:,}\n\n"
+            f"<b>📈 Всего за всё время:</b>\n"
+            f"└─ Событий собрано: {total_all_time:,}\n\n"
+        )
+
+        if top_collections:
+            onchain_text += "<b>🔥 Топ коллекции (24ч по продажам):</b>\n"
+            for i, (name, sales, avg_price) in enumerate(top_collections, 1):
+                avg_str = f"{avg_price:.1f}" if avg_price else "N/A"
+                onchain_text += f"{i}. {name}: {sales} продаж (~{avg_str} TON)\n"
+            onchain_text += "\n"
+
+        onchain_text += (
+            "<b>🔗 Источники данных:</b>\n"
+            "• TON API (tonapi.io)\n"
+            "• 40+ коллекций Telegram Gifts NFT\n\n"
+            "<i>~5% подарков выводятся on-chain, но именно\n"
+            "они торгуются на вторичном рынке! 💎</i>"
+        )
+
+        await message.answer(onchain_text, parse_mode="HTML")
+
+    except Exception as e:
+        logger.error(f"Error getting on-chain stats: {e}", exc_info=True)
+        await message.answer("❌ Ошибка при получении on-chain статистики. Попробуй позже.")

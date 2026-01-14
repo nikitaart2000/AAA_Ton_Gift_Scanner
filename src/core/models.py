@@ -20,6 +20,7 @@ class EventSource(str, Enum):
 
     SWIFT_GIFTS = "swift_gifts"
     TONNEL = "tonnel"
+    TON_API = "ton_api"
 
 
 class ConfidenceLevel(str, Enum):

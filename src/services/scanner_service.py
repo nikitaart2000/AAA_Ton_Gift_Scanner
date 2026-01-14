@@ -4,6 +4,7 @@ import asyncio
 import logging
 from typing import List, Callable, Awaitable, Optional
 from src.collectors.swift_gifts import SwiftGiftsCollector
+from src.collectors.ton_api import TonApiCollector
 # from src.collectors.tonnel_playwright import TonnelPlaywrightCollector  # DISABLED
 from src.storage.postgres import db
 from src.storage.redis_client import redis_client
@@ -19,6 +20,7 @@ class ScannerService:
 
     def __init__(self, alert_callback: Optional[Callable[[Alert], Awaitable[None]]] = None):
         self.swift_collector = SwiftGiftsCollector()
+        self.ton_api_collector = TonApiCollector()  # On-chain NFT data
         # self.tonnel_collector = TonnelPlaywrightCollector()  # DISABLED: Cloudflare blocking all requests
         self.running = False
         self.alert_callback = alert_callback  # Callback to send alerts to bot
@@ -34,8 +36,13 @@ class ScannerService:
         self.running = True
 
         # Start collectors
-        logger.info("Starting Swift Gifts collector only (Tonnel disabled due to Cloudflare)")
-        await self.swift_collector.start(self.handle_market_event)
+        logger.info("Starting Swift Gifts + TON API collectors (Tonnel disabled due to Cloudflare)")
+
+        # Run both collectors concurrently
+        await asyncio.gather(
+            self.swift_collector.start(self.handle_market_event),
+            self.ton_api_collector.start(self.handle_market_event),
+        )
         # NOTE: Tonnel collector disabled - Cloudflare bypass unsuccessful
 
     async def stop(self):
@@ -44,6 +51,7 @@ class ScannerService:
         self.running = False
 
         await self.swift_collector.stop()
+        await self.ton_api_collector.stop()
         # await self.tonnel_collector.stop()  # DISABLED
 
         await redis_client.disconnect()
