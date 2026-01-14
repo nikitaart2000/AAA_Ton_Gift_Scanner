@@ -9,6 +9,7 @@ import { DealCard } from './components/DealCard';
 import { FatDealNotification } from './components/FatDealNotification';
 import { RaccoonLoader } from './components/RaccoonLoader';
 import { FiltersSidebar, type Filters } from './components/FiltersSidebar';
+import { FallingMoney } from './components/FallingMoney';
 import { wsClient } from './websocket';
 import { hapticFeedback } from './telegram';
 import type { Deal, MarketOverview } from './types';
@@ -129,6 +130,9 @@ function App() {
 
   return (
     <>
+      {/* ПАДАЮЩИЕ ДОЛЛАРЫ */}
+      <FallingMoney />
+
       {/* ЖИРНЫЙ ДИЛ NOTIFICATION */}
       {fatDeal && <FatDealNotification deal={fatDeal} onClose={() => setFatDeal(null)} />}
 
@@ -144,8 +148,7 @@ function App() {
       {/* Header */}
       <header className="header">
         <div className="header-title">
-          <span style={{ fontSize: '24px' }}>🎯</span>
-          <div style={{ display: 'flex', flexDirection: 'column', marginLeft: '8px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
             <span style={{ fontWeight: 'bold' }}>TON GIFTS TERMINAL</span>
             <span style={{ fontSize: '9px', color: '#666', marginTop: '-2px' }}>v2.0</span>
           </div>
