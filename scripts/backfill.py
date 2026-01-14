@@ -140,11 +140,8 @@ class BackfillRunner:
 
     async def run_all(self, tonnel_pages: int = 50, fragment_pages: int = 5):
         """Run all backfills."""
-        logger.info("🚀 STARTING FULL BACKFILL FROM ALL SOURCES")
+        logger.info("STARTING FULL BACKFILL FROM ALL SOURCES")
         logger.info("")
-
-        # Initialize database
-        await db.init()
 
         try:
             # Tonnel first (usually has more data)
@@ -156,7 +153,7 @@ class BackfillRunner:
             # Summary
             logger.info("")
             logger.info("=" * 60)
-            logger.info("📊 BACKFILL SUMMARY")
+            logger.info("BACKFILL SUMMARY")
             logger.info("=" * 60)
 
             total_new = sum(s["new"] for s in self.stats.values())
@@ -171,8 +168,8 @@ class BackfillRunner:
             for source, stats in self.stats.items():
                 logger.info(f"  {source}: {stats['new']} new / {stats['total']} total")
 
-        finally:
-            await db.close()
+        except Exception as e:
+            logger.error(f"Error in backfill: {e}", exc_info=True)
 
 
 async def main():
@@ -201,7 +198,7 @@ async def main():
     runner = BackfillRunner()
 
     # Initialize database
-    await db.init()
+    await db.connect()
 
     try:
         if args.source == "tonnel":
@@ -214,7 +211,7 @@ async def main():
                 fragment_pages=args.fragment_pages,
             )
     finally:
-        await db.close()
+        await db.disconnect()
 
 
 if __name__ == "__main__":
