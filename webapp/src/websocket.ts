@@ -13,8 +13,8 @@ export type MessageHandler = (message: WebSocketMessage) => void;
 
 export class WSClient {
   private ws: WebSocket | null = null;
-  private reconnectTimer: NodeJS.Timeout | null = null;
-  private pingTimer: NodeJS.Timeout | null = null;
+  private reconnectTimer: number | null = null;
+  private pingTimer: number | null = null;
   private handlers: Set<MessageHandler> = new Set();
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
