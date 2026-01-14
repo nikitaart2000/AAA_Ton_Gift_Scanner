@@ -124,17 +124,18 @@ function App() {
     };
   }, []);
 
-  if (loading) {
-    return <RaccoonLoader />;
-  }
-
   return (
     <>
-      {/* ПАДАЮЩИЕ ДОЛЛАРЫ */}
+      {/* ПАДАЮЩИЕ ДОЛЛАРЫ - всегда показываем */}
       <FallingMoney />
 
-      {/* ЖИРНЫЙ ДИЛ NOTIFICATION */}
-      {fatDeal && <FatDealNotification deal={fatDeal} onClose={() => setFatDeal(null)} />}
+      {/* Показываем загрузчик или основной контент */}
+      {loading ? (
+        <RaccoonLoader />
+      ) : (
+        <>
+          {/* ЖИРНЫЙ ДИЛ NOTIFICATION */}
+          {fatDeal && <FatDealNotification deal={fatDeal} onClose={() => setFatDeal(null)} />}
 
       {/* ФИЛЬТРЫ SIDEBAR */}
       <FiltersSidebar
@@ -296,6 +297,8 @@ function App() {
         )}
       </div>
     </div>
+        </>
+      )}
     </>
   );
 }

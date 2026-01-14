@@ -16,6 +16,7 @@ export function FallingMoney() {
   const [bills, setBills] = useState<MoneyBill[]>([]);
 
   useEffect(() => {
+    console.log('💵 FallingMoney component mounted');
     // Создаём 15 долларов с рандомными параметрами
     const moneyBills: MoneyBill[] = Array.from({ length: 15 }, (_, i) => ({
       id: i,
@@ -25,6 +26,7 @@ export function FallingMoney() {
       rotation: Math.random() * 360, // начальный поворот
     }));
 
+    console.log('💵 Created', moneyBills.length, 'money bills');
     setBills(moneyBills);
   }, []);
 
