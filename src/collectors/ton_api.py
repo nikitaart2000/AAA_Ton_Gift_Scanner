@@ -47,7 +47,8 @@ class TonApiCollector:
 
         headers = {"Accept": "application/json"}
         if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
+            # TON API uses X-API-Key header, not Bearer token
+            headers["X-API-Key"] = self.api_key
 
         self.session = aiohttp.ClientSession(headers=headers)
         logger.info(f"TON API collector started, tracking {len(GIFT_COLLECTIONS)} collections")
