@@ -12,49 +12,16 @@ from src.core.models import MarketEvent, EventType, EventSource
 logger = logging.getLogger(__name__)
 
 
-# TON Gift NFT Collection addresses
+# TON Gift NFT Collection addresses (raw format 0:...)
+# Verified from tonapi.io search
 GIFT_COLLECTIONS = {
-    "Plush Pepes": "EQBG-g6ahkAUGWpefWbx-D_9sQ8oWbvy6puuq78U2c4NUDFS",
-    "Easter Eggs": "EQAwnP7dGfE_WO0xiCiulkAXUG1K1bWH1vE1k64T4G-7gruO",
-    "Swiss Watches": "EQBI07PXew94YQz7GwN72nPNGF6htSTOJkuU4Kx_bjTZv32U",
-    "Toy Bears": "EQC1gud6QO8NdJjVrqr7qFBMO0oQsktkvzhmIRoMKo8vxiyL",
-    "Lol Pops": "EQC6zjid8vJNEWqcXk10XjsdDLRKbcPZzbHusuEW6FokOWIm",
-    "Eternal Candles": "EQBzZLNIr4lie0pTfrbRsANJOtFYwY5gmngRfs84Ras5-aVN",
-    "Stellar Rockets": "EQDIruSTyxvq60gUH8j2kkj3qzoBrBaJy9WkKbeNNRasWe4j",
-    "Durov's Caps": "EQD9ikZq6xPgKjzmdBG0G0S80RvUJjbwgHrPZXDKc_wsE84w",
-    "Astral Shards": "EQCBR3HaX5Cg0t2j1F9EzMNwLWKjQ4eyN-Cda7B1CWHVkNOh",
-    "Jelly Bunnies": "EQA1jXaRixNn7VWw3sI8BqLHOUbnY6yfFZ7QMv8M7N_q9JJu",
-    "Skull Flowers": "EQABdV2_I95vBh8rDfGq6I7v-BmA9yMH_Z8osCOL6O1rZtKS",
-    "Desert Spirits": "EQAvd44wd_ho2-J8dJB-PI0LT8yH0bZ6_mVPtQujbZvzCGS4",
-    "Magic Potions": "EQBiuIcEBjzOC0bOEnq0tFd6-5jELbB3gRTKcZMVqt9qb3gf",
-    "Crystal Balls": "EQCnJe_GMLJ0_ZjXiAbCPdJDdMDPjR2eLb-Nn7MVXQ6QdP2w",
-    "Voodoo Dolls": "EQAH9z-cJb3TLkHXSaB0hF3q3Q9FPxFGPBkJ6PkHJ2dPKf_n",
-    "Sakura Blooms": "EQD0CAq6P34Ga7ycb0zM38OG-O-XaHWBKOQKbDXP_QMKhJhg",
-    "Ginger Cookies": "EQBo8pAkT8w2_C9HYQx5o1YX2FbKcwO1EInGDHl8XkJYJp9c",
-    "Top Hats": "EQDnMo8F3Kla-M5bnz1_f9aW1YX-hzjG8oSuN7q4lhZ5aPND",
-    "Ion Stars": "EQBf2fIvzzA1XQNq0HRlWU6qJnKV3GZ9lP7qP3X-IKCbsxKb",
-    "Gem Stones": "EQC8tKkz8lRu4h6b7BWn6gFqjFN9_n6pNE3H0z5K_kKPT-Sm",
-    "Heart Flames": "EQBVg8Wh-PvLcZP5jU2JUNq1fP3lLJT1Q3Tl3r8X4VRi0KMP",
-    "Christmas Stars": "EQDShJvpYf0NuydB-AXGFm3bNUkN0G3mJeB9Xqb_4rVT_CVz",
-    "Warm Socks": "EQArkJC2Lh6tl4tN9dRhM8fUB4bHp8PCCp3iP-TDJqCFKsQJ",
-    "Lucky Clovers": "EQDz8Ia5_uN4B1J8JsMiKQyJl4QD9aXQ6XVjPvLF-LgCFg0Y",
-    "Electric Skulls": "EQBgCFijNkKn7v-SuPDfqD4p7jJ2fL5w3Jp8O0VnY7N-E4hz",
-    "Space Bottles": "EQAn9Kq4p5dJn0mL8U9vFHy1MuC8LZ8a9Qk3s_FT-bCVJT0e",
-    "Record Players": "EQB0F7pVnT5z4Q6QwY3qLJmnR6H8gCXjKFm9M5l2bvN_KJhc",
-    "Party Sparklers": "EQCj5Xd3DfVBz8HKyMN5qT9XaJhR4kW1gQp7mF-nYR2_cXLh",
-    "Snow Globes": "EQAugUOx4HPbSlDAnqf0YdjFSR3lB7mT9qJzPDVmIJhNOTUU",
-    "Bunnycorns": "EQBTzKflLdF3NVQC1qQh7WR8Mq2P9HgJlKd2mLvNbU5_4jXY",
-    "Homemade Cakes": "EQDvmM_Kzua9TNa1w8XPrVRl0HYyqT7J-Zq3Nb5P9dQHfCYP",
-    "Spiced Wines": "EQC0Yjf8PmNv_tL3xQB4Z5JqD9hK_MW2nRp6mY-FT1vCqXhR",
-    "Love Candles": "EQBt7HjP5D4a_W8nXLdQ9KrMvZy1JEf3N2qT_pF-6dYVbTkO",
-    "Hanging Stars": "EQANp3bfJLxY-0qT7KHdWm5MRZv2nG4jQ9FhC8XE_1pYaLDh",
-    "Signet Rings": "EQC5F8jK2Xb_fN0mPQHdV4Lrq3pT9MW1JYk6n2-ZG_vBhKXc",
-    "Trapped Hearts": "EQAmfQdP3LyZ0bV8JKNn5TqMhH2W4GdX1pFk7rCvT9Y_cEtO",
-    "Perfume Bottles": "EQBHkd7aP5Lz_W2nYQm1KvT8JXb0MRZq3NH4gcFE_6pCfVxY",
-    "B-Day Candles": "EQAQBZ2jN8xL0fVqKP3dYTm5Hv_7MWz4n1Gh9FC_rEXbpKtO",
-    "Vintage Cigars": "EQCjXp2bM9aZ_v8nTKNqFhd3P0Lr1YQk7Wm4JC_ZGE5HcfVx",
-    "Diamond Rings": "EQAhkLf5Nb_v9T8mXQYd1pPKrJz0M2WHn4Gq3CF_ZEV7aBtO",
-    "Precious Peaches": "EQD8kT3bN_Lz0fVmJXYdWqKPHp5a1MRQ7n2Gh4FC_ZECxpVt",
+    # Verified collections from Fragment/Telegram
+    "Plush Pepes": "0:46fa0e9a864014196a5e7d66f1f83ffdb10f2859bbf2ea9baeabbf14d9ce0d50",
+    "Snoop Doggs": "0:28270ec1a4e7010f7cbdbe832e110faa852dcae20b4cfba11e3cbc64ce4f224a",
+    "Durov's Caps": "0:fd8a466aeb13e02a3ce67411b41b44bcd11bd42636f0807acf6570ca73fc2c13",
+    "Lol Pops": "0:bace389df2f24d116a9c5e4d745e3b1d0cb44a6dc3d9cdb1eeb2e116e85a2439",
+    "Witch Hats": "0:43f1a04a0b836c9d832ab6409f3d09361159e27b29c9429d54819572c7556647",
+    "Homemade Cakes": "0:9e7eb8e1083dbfec7448af6966c2df596aa786fed76c781bc00c2ebaf37de405",
 }
 
 
