@@ -1,0 +1,142 @@
+/**
+ * ЕНОТ-БАРЫГА LOADER STYLES 🦝💰
+ * Самый охуенный лоадер в мире!
+ */
+
+.raccoon-loader {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, #0a0a15 0%, #1a1a2e 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  overflow: hidden;
+}
+
+/* ПАДАЮЩИЕ БАКСЫ 💵 - БОЛЬШЕ И БЫСТРЕЕ! */
+.money-rain {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+}
+
+.money {
+  position: absolute;
+  top: -50px;
+  font-size: 28px;
+  animation: money-fall linear infinite;
+  opacity: 0.9;
+  filter: drop-shadow(0 0 15px rgba(0, 255, 100, 0.8));
+}
+
+@keyframes money-fall {
+  0% {
+    transform: translateY(-50px) rotate(0deg);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.9;
+  }
+  90% {
+    opacity: 0.9;
+  }
+  100% {
+    transform: translateY(120vh) rotate(360deg);
+    opacity: 0;
+  }
+}
+
+/* ЕНОТ КОНТЕЙНЕР */
+.raccoon-container {
+  position: relative;
+  width: 200px;
+  height: 200px;
+  margin-bottom: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ПРОСТО МИЛЫЙ ЕНОТ EMOJI */
+.raccoon-emoji {
+  font-size: 120px;
+  animation: raccoon-bounce 1.5s ease-in-out infinite;
+  filter: drop-shadow(0 0 30px rgba(255, 255, 255, 0.3));
+}
+
+@keyframes raccoon-bounce {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-20px) scale(1.1);
+  }
+}
+
+/* ТЕКСТ */
+.loader-text {
+  text-align: center;
+  margin-top: 20px;
+}
+
+.loader-title {
+  font-size: 24px;
+  font-weight: bold;
+  color: #00ff88;
+  text-shadow: 0 0 20px rgba(0, 255, 136, 0.6);
+  margin-bottom: 8px;
+  animation: text-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes text-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.05);
+  }
+}
+
+.loader-subtitle {
+  font-size: 16px;
+  color: #ffaa00;
+  font-weight: bold;
+  text-shadow: 0 0 10px rgba(255, 170, 0, 0.6);
+}
+
+/* ДОБАВИТЬ ИСКРЫ */
+.raccoon-loader::before {
+  content: '✨';
+  position: absolute;
+  font-size: 32px;
+  animation: sparkle 2s linear infinite;
+  opacity: 0;
+}
+
+@keyframes sparkle {
+  0% {
+    top: 20%;
+    left: 20%;
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    top: 80%;
+    left: 80%;
+    opacity: 0;
+  }
+}

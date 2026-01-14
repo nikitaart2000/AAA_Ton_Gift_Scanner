@@ -1,0 +1,187 @@
+"""API routes for asset analytics."""
+
+import logging
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
+from typing import List
+from fastapi import APIRouter, Path, Depends, HTTPException
+
+from src.api.models import (
+    AssetAnalyticsResponse,
+    AssetFloor,
+    AssetSales,
+    PricePoint,
+)
+from src.core.models import ConfidenceLevel, Trend, BLACK_PACK_BACKGROUNDS
+from src.storage.postgres import PostgresStorage
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/analytics", tags=["analytics"])
+
+
+def get_postgres() -> PostgresStorage:
+    """Dependency to get PostgresStorage."""
+    return PostgresStorage()
+
+
+@router.get("/{asset_key:path}", response_model=AssetAnalyticsResponse)
+async def get_asset_analytics(
+    asset_key: str = Path(..., description="Asset key (model:backdrop)"),
+    db: PostgresStorage = Depends(get_postgres),
+) -> AssetAnalyticsResponse:
+    """Get detailed analytics for an asset."""
+    await db.connect()
+
+    try:
+        # Get asset analytics from DB
+        analytics_query = """
+            SELECT
+                gift_name,
+                model,
+                backdrop,
+                arp,
+                confidence_level,
+                liquidity_score,
+                trend,
+                sales_7d,
+                sales_30d,
+                price_q25,
+                price_q50,
+                price_q75,
+                price_max
+            FROM asset_analytics
+            WHERE asset_key = :asset_key
+        """
+        analytics_row = await db.pool.fetchrow(
+            analytics_query, asset_key=asset_key
+        )
+
+        if not analytics_row:
+            raise HTTPException(status_code=404, detail="Asset not found")
+
+        # Check if black pack
+        backdrop = analytics_row["backdrop"]
+        is_black_pack = backdrop in BLACK_PACK_BACKGROUNDS
+
+        # Get floor prices (1st, 2nd, 3rd lowest)
+        floor_query = """
+            SELECT price
+            FROM active_listings
+            WHERE asset_key = :asset_key
+            ORDER BY price ASC
+            LIMIT 3
+        """
+        floor_rows = await db.pool.fetch(floor_query, asset_key=asset_key)
+
+        floor = AssetFloor(
+            first_floor=floor_rows[0]["price"] if len(floor_rows) > 0 else None,
+            second_floor=floor_rows[1]["price"] if len(floor_rows) > 1 else None,
+            third_floor=floor_rows[2]["price"] if len(floor_rows) > 2 else None,
+        )
+
+        # Get sales statistics
+        sales = AssetSales(
+            count_7d=analytics_row["sales_7d"] or 0,
+            count_30d=analytics_row["sales_30d"] or 0,
+            q25=analytics_row["price_q25"],
+            q50=analytics_row["price_q50"],
+            q75=analytics_row["price_q75"],
+            max=analytics_row["price_max"],
+        )
+
+        # Calculate avg flip time and profit (from buy events)
+        flip_query = """
+            WITH consecutive_buys AS (
+                SELECT
+                    event_time,
+                    price,
+                    LEAD(event_time) OVER (ORDER BY event_time) as next_event_time,
+                    LEAD(price) OVER (ORDER BY event_time) as next_price
+                FROM market_events
+                WHERE asset_key = :asset_key
+                    AND event_type = 'buy'
+                    AND event_time >= :time_threshold
+                ORDER BY event_time
+            )
+            SELECT
+                AVG(EXTRACT(EPOCH FROM (next_event_time - event_time)) / 3600) as avg_flip_hours,
+                AVG(((next_price - price) / price) * 100) as avg_flip_profit_pct
+            FROM consecutive_buys
+            WHERE next_event_time IS NOT NULL
+                AND next_price > price
+        """
+        time_threshold = datetime.now(timezone.utc) - timedelta(days=30)
+        flip_row = await db.pool.fetchrow(
+            flip_query, asset_key=asset_key, time_threshold=time_threshold
+        )
+
+        if flip_row:
+            sales.avg_flip_time_hours = (
+                float(flip_row["avg_flip_hours"])
+                if flip_row["avg_flip_hours"]
+                else None
+            )
+            sales.avg_flip_profit_pct = (
+                float(flip_row["avg_flip_profit_pct"])
+                if flip_row["avg_flip_profit_pct"]
+                else None
+            )
+
+        # Get price history (last 30 days)
+        history_query = """
+            SELECT
+                event_time,
+                price,
+                event_type
+            FROM market_events
+            WHERE asset_key = :asset_key
+                AND event_time >= :time_threshold
+            ORDER BY event_time ASC
+            LIMIT 500
+        """
+        time_threshold = datetime.now(timezone.utc) - timedelta(days=30)
+        history_rows = await db.pool.fetch(
+            history_query, asset_key=asset_key, time_threshold=time_threshold
+        )
+
+        price_history: List[PricePoint] = [
+            PricePoint(
+                timestamp=row["event_time"],
+                price=row["price"],
+                event_type=row["event_type"],
+            )
+            for row in history_rows
+        ]
+
+        # Get active listings count
+        listings_query = """
+            SELECT COUNT(*) as count, MIN(price) as cheapest
+            FROM active_listings
+            WHERE asset_key = :asset_key
+        """
+        listings_row = await db.pool.fetchrow(listings_query, asset_key=asset_key)
+        active_listings_count = listings_row["count"] if listings_row else 0
+        cheapest_listing = listings_row["cheapest"] if listings_row else None
+
+        return AssetAnalyticsResponse(
+            asset_key=asset_key,
+            gift_name=analytics_row["gift_name"] or "Unknown",
+            model=analytics_row["model"],
+            backdrop=backdrop,
+            is_black_pack=is_black_pack,
+            floor=floor,
+            arp=analytics_row["arp"],
+            confidence_level=ConfidenceLevel(
+                analytics_row["confidence_level"] or "low"
+            ),
+            liquidity_score=analytics_row["liquidity_score"] or Decimal(0),
+            trend=Trend(analytics_row["trend"] or "stable"),
+            sales=sales,
+            price_history=price_history,
+            active_listings_count=active_listings_count,
+            cheapest_listing=cheapest_listing,
+        )
+
+    finally:
+        await db.disconnect()

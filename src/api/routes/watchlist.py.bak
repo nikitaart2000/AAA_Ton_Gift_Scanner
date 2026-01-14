@@ -1,0 +1,149 @@
+"""API routes for watchlist."""
+
+import logging
+from datetime import datetime, timezone
+from decimal import Decimal
+from fastapi import APIRouter, Depends, HTTPException
+
+from src.api.models import (
+    WatchlistItem,
+    WatchlistResponse,
+    AddToWatchlistRequest,
+)
+from src.storage.postgres import PostgresStorage
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/watchlist", tags=["watchlist"])
+
+
+def get_postgres() -> PostgresStorage:
+    """Dependency to get PostgresStorage."""
+    return PostgresStorage()
+
+
+@router.get("", response_model=WatchlistResponse)
+async def get_watchlist(
+    user_id: int,
+    db: PostgresStorage = Depends(get_postgres),
+) -> WatchlistResponse:
+    """Get user's watchlist."""
+    await db.connect()
+
+    try:
+        # Get watchlist items with current prices
+        query = """
+            SELECT
+                w.asset_key,
+                w.added_at,
+                w.alert_threshold_pct,
+                aa.gift_name,
+                aa.model,
+                aa.backdrop,
+                aa.arp as reference_price,
+                al.price as current_price,
+                al.photo_url,
+                sa.last_alert_at
+            FROM watchlist w
+            LEFT JOIN asset_analytics aa ON w.asset_key = aa.asset_key
+            LEFT JOIN LATERAL (
+                SELECT price, photo_url
+                FROM active_listings
+                WHERE asset_key = w.asset_key
+                ORDER BY price ASC
+                LIMIT 1
+            ) al ON true
+            LEFT JOIN sent_alerts sa ON sa.user_id = w.user_id AND sa.asset_key = w.asset_key
+            WHERE w.user_id = :user_id
+            ORDER BY w.added_at DESC
+        """
+        rows = await db.pool.fetch(query, user_id=user_id)
+
+        items = []
+        for row in rows:
+            current_price = row["current_price"]
+            reference_price = row["reference_price"]
+
+            # Calculate profit %
+            profit_pct = None
+            if current_price and reference_price:
+                profit_pct = (
+                    ((reference_price - current_price) / current_price) * 100
+                )
+
+            item = WatchlistItem(
+                asset_key=row["asset_key"],
+                gift_name=row["gift_name"] or "Unknown",
+                model=row["model"],
+                backdrop=row["backdrop"],
+                photo_url=row["photo_url"],
+                current_price=current_price,
+                reference_price=reference_price,
+                profit_pct=profit_pct,
+                alert_threshold_pct=row["alert_threshold_pct"] or 15.0,
+                last_alert_at=row["last_alert_at"],
+                added_at=row["added_at"],
+            )
+            items.append(item)
+
+        return WatchlistResponse(items=items, total=len(items))
+
+    finally:
+        await db.disconnect()
+
+
+@router.post("", status_code=201)
+async def add_to_watchlist(
+    user_id: int,
+    request: AddToWatchlistRequest,
+    db: PostgresStorage = Depends(get_postgres),
+):
+    """Add asset to watchlist."""
+    await db.connect()
+
+    try:
+        query = """
+            INSERT INTO watchlist (user_id, asset_key, added_at, alert_threshold_pct)
+            VALUES (:user_id, :asset_key, :added_at, :alert_threshold_pct)
+            ON CONFLICT (user_id, asset_key) DO UPDATE
+            SET alert_threshold_pct = EXCLUDED.alert_threshold_pct
+        """
+        await db.pool.execute(
+            query,
+            user_id=user_id,
+            asset_key=request.asset_key,
+            added_at=datetime.now(timezone.utc),
+            alert_threshold_pct=request.alert_threshold_pct,
+        )
+
+        return {"status": "ok", "message": "Added to watchlist"}
+
+    finally:
+        await db.disconnect()
+
+
+@router.delete("/{asset_key:path}", status_code=204)
+async def remove_from_watchlist(
+    user_id: int,
+    asset_key: str,
+    db: PostgresStorage = Depends(get_postgres),
+):
+    """Remove asset from watchlist."""
+    await db.connect()
+
+    try:
+        query = """
+            DELETE FROM watchlist
+            WHERE user_id = :user_id AND asset_key = :asset_key
+        """
+        result = await db.pool.execute(
+            query, user_id=user_id, asset_key=asset_key
+        )
+
+        if result == "DELETE 0":
+            raise HTTPException(status_code=404, detail="Item not found")
+
+        return None
+
+    finally:
+        await db.disconnect()

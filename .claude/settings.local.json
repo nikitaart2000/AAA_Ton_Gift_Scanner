@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker-compose up:*)",
+      "Bash(docker compose:*)",
+      "Bash(ssh root@37.60.236.53 'free -h && df -h && nproc')"
+    ]
+  }
+}
