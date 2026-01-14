@@ -4,7 +4,10 @@
   "devCommand": "npm run dev",
   "installCommand": "npm install",
   "framework": "vite",
-  "env": {
-    "VITE_API_URL": "http://37.60.236.53/api"
-  }
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "http://37.60.236.53/api/:path*"
+    }
+  ]
 }

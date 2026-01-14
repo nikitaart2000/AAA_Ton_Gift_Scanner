@@ -4,8 +4,8 @@
 
 import type { DealsResponse, MarketOverview } from '../types';
 
-// API URL - используем относительный путь для Vite proxy, или переопределяем через environment variable
-const API_BASE = import.meta.env.VITE_API_URL || '/api';
+// API URL - используем относительный путь (Vercel будет проксировать на backend)
+const API_BASE = '/api';
 console.log('🔧 API_BASE configured as:', API_BASE);
 
 export class ApiClient {

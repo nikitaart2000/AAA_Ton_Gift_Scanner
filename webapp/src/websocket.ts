@@ -21,18 +21,11 @@ export class WSClient {
   private url: string;
 
   constructor(url?: string) {
-    // WebSocket URL - используем относительный путь или переопределяем через environment variable
+    // WebSocket URL - используем относительный путь (Vercel proxy)
     if (url) {
       this.url = url;
-    } else if (import.meta.env.VITE_API_URL) {
-      // Если задан VITE_API_URL, используем его
-      const apiUrl = import.meta.env.VITE_API_URL;
-      // Replace http:// or https:// with ws:// or wss://
-      const wsUrl = apiUrl.replace(/^http/, 'ws');
-      // Add /ws to the end (API URL already has /api)
-      this.url = `${wsUrl}/ws`;
     } else {
-      // Используем относительный путь (через Vite proxy)
+      // Используем относительный путь
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       this.url = `${protocol}//${window.location.host}/api/ws`;
     }
