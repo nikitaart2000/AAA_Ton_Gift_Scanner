@@ -21,6 +21,8 @@ class EventSource(str, Enum):
     SWIFT_GIFTS = "swift_gifts"
     TONNEL = "tonnel"
     TON_API = "ton_api"
+    FRAGMENT = "fragment"
+    THERMOS = "thermos"
 
 
 class ConfidenceLevel(str, Enum):

@@ -1,14 +1,20 @@
-"""Tonnel market collector via REST API."""
+"""Tonnel market collector via REST API.
+
+Provides:
+- Real-time listing sync
+- Floor prices for all models (filterStats)
+- Sale history backfill
+"""
 
 import asyncio
 import logging
 import random
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Optional, Callable, Awaitable, List
+from typing import Optional, Callable, Awaitable, List, Dict, Any
 from curl_cffi.requests import AsyncSession
 from src.config import settings
-from src.core.models import ActiveListing, EventSource
+from src.core.models import ActiveListing, MarketEvent, EventType, EventSource
 
 logger = logging.getLogger(__name__)
 
@@ -252,3 +258,226 @@ class TonnelCollector:
                 logger.error(f"Error fetching metadata for {gift_id}: {e}", exc_info=True)
 
         return None
+
+    async def fetch_floor_stats(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Fetch floor prices for ALL gift models.
+
+        Returns dict like:
+        {
+            "Toy Bear": {
+                "Wizard": {"floor_price": 10.5, "count": 25, "rarity": 2.5},
+                "Knight": {"floor_price": 8.2, "count": 30, "rarity": 3.1},
+                ...
+            },
+            ...
+        }
+        """
+        async with AsyncSession(impersonate="chrome110") as session:
+            headers = {
+                "origin": "https://market.tonnel.network",
+                "referer": "https://market.tonnel.network/",
+                "user-agent": self._random_user_agent(),
+                "content-type": "application/json",
+            }
+
+            payload = {"authData": self.auth_data}
+
+            try:
+                response = await session.post(
+                    f"{self.base_url}/api/filterStatsPretty",
+                    headers=headers,
+                    json=payload,
+                    timeout=60,
+                )
+
+                if response.status_code == 200:
+                    data = response.json()
+                    # Response format: {"data": {"gift_name": {"model": {"floorPrice": X, "howMany": Y, "rarity": Z}}}}
+                    result = {}
+                    raw_data = data.get("data", data) if isinstance(data, dict) else {}
+
+                    for gift_name, models in raw_data.items():
+                        if isinstance(models, dict):
+                            result[gift_name] = {}
+                            for model_name, stats in models.items():
+                                if isinstance(stats, dict):
+                                    result[gift_name][model_name] = {
+                                        "floor_price": Decimal(str(stats.get("floorPrice", 0))) if stats.get("floorPrice") else None,
+                                        "count": stats.get("howMany", 0),
+                                        "rarity": stats.get("rarity", 0),
+                                    }
+
+                    logger.info(f"✅ Fetched floor stats for {len(result)} gift collections")
+                    return result
+                else:
+                    logger.error(f"Failed to fetch floor stats: {response.status_code}")
+
+            except Exception as e:
+                logger.error(f"Error fetching floor stats: {e}", exc_info=True)
+
+        return {}
+
+    async def fetch_global_sale_history(
+        self,
+        page: int = 1,
+        limit: int = 100,
+        sale_type: str = "ALL",
+        gift_name: str = None,
+        model: str = None,
+        backdrop: str = None,
+    ) -> List[MarketEvent]:
+        """
+        Fetch global sale history from Tonnel.
+
+        Args:
+            page: Page number (1-indexed)
+            limit: Items per page (max 100)
+            sale_type: ALL, SALE, INTERNAL_SALE, or BID
+            gift_name: Filter by gift collection name
+            model: Filter by model
+            backdrop: Filter by backdrop
+
+        Returns:
+            List of MarketEvent objects representing sales (buy events)
+        """
+        async with AsyncSession(impersonate="chrome110") as session:
+            headers = {
+                "origin": "https://market.tonnel.network",
+                "referer": "https://market.tonnel.network/",
+                "user-agent": self._random_user_agent(),
+                "content-type": "application/json",
+            }
+
+            payload = {
+                "authData": self.auth_data,
+                "page": page,
+                "limit": limit,
+                "type": sale_type,
+                "sort": "latest",
+            }
+
+            # Add optional filters
+            if gift_name:
+                payload["gift_name"] = gift_name
+            if model:
+                payload["model"] = model
+            if backdrop:
+                payload["backdrop"] = backdrop
+
+            try:
+                response = await session.post(
+                    f"{self.base_url}/api/saleHistory",
+                    headers=headers,
+                    json=payload,
+                    timeout=30,
+                )
+
+                if response.status_code == 200:
+                    data = response.json()
+                    sales_data = data if isinstance(data, list) else data.get("sales", data.get("data", []))
+
+                    events = []
+                    for sale in sales_data:
+                        event = self._parse_sale_to_event(sale)
+                        if event:
+                            events.append(event)
+
+                    logger.info(f"Fetched {len(events)} sales from Tonnel (page {page})")
+                    return events
+                else:
+                    logger.error(f"Failed to fetch sale history: {response.status_code}")
+
+            except Exception as e:
+                logger.error(f"Error fetching sale history: {e}", exc_info=True)
+
+        return []
+
+    def _parse_sale_to_event(self, sale_data: dict) -> Optional[MarketEvent]:
+        """Parse Tonnel sale data into MarketEvent."""
+        try:
+            # Extract gift_id
+            gift_id = sale_data.get("gift_id") or sale_data.get("asset") or sale_data.get("slug")
+            if not gift_id:
+                return None
+
+            # Extract price
+            price_value = sale_data.get("price") or sale_data.get("sale_price")
+            if price_value is None:
+                return None
+            price = Decimal(str(price_value))
+
+            # Parse timestamp
+            event_time = None
+            ts = sale_data.get("date") or sale_data.get("sold_at") or sale_data.get("timestamp")
+            if ts:
+                event_time = self._parse_timestamp(ts)
+            if not event_time:
+                event_time = datetime.now(timezone.utc)
+
+            # Extract metadata
+            gift_name = sale_data.get("gift_name") or sale_data.get("collection")
+            model = sale_data.get("model")
+            backdrop = sale_data.get("backdrop")
+            pattern = sale_data.get("pattern") or sale_data.get("symbol")
+            number = sale_data.get("gift_num") or sale_data.get("number")
+
+            return MarketEvent(
+                event_time=event_time,
+                event_type=EventType.BUY,
+                gift_id=str(gift_id),
+                gift_name=gift_name,
+                model=model,
+                backdrop=backdrop,
+                pattern=pattern,
+                number=number,
+                price=price,
+                source=EventSource.TONNEL,
+                raw_data=sale_data,
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to parse sale to event: {e}, data: {sale_data}", exc_info=True)
+            return None
+
+    async def backfill_sales(
+        self,
+        max_pages: int = 50,
+        event_handler: Optional[Callable[[MarketEvent], Awaitable[None]]] = None
+    ) -> int:
+        """
+        Backfill historical sales from Tonnel.
+
+        Args:
+            max_pages: Maximum pages to fetch (100 items per page)
+            event_handler: Optional handler for each event
+
+        Returns:
+            Total number of sales backfilled
+        """
+        logger.info(f"🔄 Starting Tonnel sales backfill (max {max_pages} pages)...")
+
+        total_events = 0
+        page = 1
+
+        while page <= max_pages:
+            events = await self.fetch_global_sale_history(page=page, limit=100)
+
+            if not events:
+                logger.info(f"No more sales at page {page}, stopping backfill")
+                break
+
+            # Process events
+            for event in events:
+                if event_handler:
+                    await event_handler(event)
+                total_events += 1
+
+            logger.info(f"📊 Backfill progress: page {page}/{max_pages}, total events: {total_events}")
+
+            # Rate limiting
+            await asyncio.sleep(1)  # 1 RPS to be safe
+            page += 1
+
+        logger.info(f"✅ Tonnel backfill complete! Total sales: {total_events}")
+        return total_events
