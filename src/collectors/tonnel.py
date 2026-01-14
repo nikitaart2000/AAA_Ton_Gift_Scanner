@@ -455,19 +455,20 @@ class TonnelCollector:
         Backfill historical sales from Tonnel.
 
         Args:
-            max_pages: Maximum pages to fetch (100 items per page)
+            max_pages: Maximum pages to fetch (50 items per page)
             event_handler: Optional handler for each event
 
         Returns:
             Total number of sales backfilled
         """
-        logger.info(f"🔄 Starting Tonnel sales backfill (max {max_pages} pages)...")
+        logger.info(f"Starting Tonnel sales backfill (max {max_pages} pages)...")
 
         total_events = 0
         page = 1
 
+        # Use limit=50 - Tonnel API is unreliable with higher limits
         while page <= max_pages:
-            events = await self.fetch_global_sale_history(page=page, limit=100)
+            events = await self.fetch_global_sale_history(page=page, limit=50)
 
             if not events:
                 logger.info(f"No more sales at page {page}, stopping backfill")
