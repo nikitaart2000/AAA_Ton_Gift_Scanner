@@ -328,7 +328,7 @@ class TonnelCollector:
         backdrop: str = None,
     ) -> List[MarketEvent]:
         """
-        Fetch global sale history from Tonnel.
+        Fetch global sale history from Tonnel using tonnelmp package.
 
         Args:
             page: Page number (1-indexed)
@@ -341,57 +341,43 @@ class TonnelCollector:
         Returns:
             List of MarketEvent objects representing sales (buy events)
         """
-        async with AsyncSession(impersonate="chrome110") as session:
-            headers = {
-                "origin": "https://market.tonnel.network",
-                "referer": "https://market.tonnel.network/",
-                "user-agent": self._random_user_agent(),
-                "content-type": "application/json",
-            }
+        try:
+            # Use tonnelmp package which has better Cloudflare bypass
+            from tonnelmp import saleHistory
 
-            payload = {
-                "authData": self.auth_data,
-                "page": page,
-                "limit": limit,
-                "type": sale_type,
-                "sort": "latest",
-            }
+            # Run sync function in executor to not block async loop
+            import asyncio
+            loop = asyncio.get_event_loop()
 
-            # Add optional filters
-            if gift_name:
-                payload["gift_name"] = gift_name
-            if model:
-                payload["model"] = model
-            if backdrop:
-                payload["backdrop"] = backdrop
-
-            try:
-                response = await session.post(
-                    f"{self.base_url}/api/saleHistory",
-                    headers=headers,
-                    json=payload,
-                    timeout=30,
+            def fetch_sync():
+                return saleHistory(
+                    authData=self.auth_data,
+                    page=page,
+                    limit=limit,
+                    type=sale_type,
+                    sort="latest",
+                    gift_name=gift_name or "",
+                    model=model or "",
+                    backdrop=backdrop or "",
                 )
 
-                if response.status_code == 200:
-                    data = response.json()
-                    sales_data = data if isinstance(data, list) else data.get("sales", data.get("data", []))
+            sales_data = await loop.run_in_executor(None, fetch_sync)
 
-                    events = []
-                    for sale in sales_data:
-                        event = self._parse_sale_to_event(sale)
-                        if event:
-                            events.append(event)
+            events = []
+            for sale in sales_data:
+                event = self._parse_sale_to_event(sale)
+                if event:
+                    events.append(event)
 
-                    logger.info(f"Fetched {len(events)} sales from Tonnel (page {page})")
-                    return events
-                else:
-                    logger.error(f"Failed to fetch sale history: {response.status_code}")
+            logger.info(f"Fetched {len(events)} sales from Tonnel (page {page})")
+            return events
 
-            except Exception as e:
-                logger.error(f"Error fetching sale history: {e}", exc_info=True)
-
-        return []
+        except ImportError:
+            logger.error("tonnelmp package not installed. Run: pip install tonnelmp")
+            return []
+        except Exception as e:
+            logger.error(f"Error fetching sale history: {e}", exc_info=True)
+            return []
 
     def _parse_sale_to_event(self, sale_data: dict) -> Optional[MarketEvent]:
         """Parse Tonnel sale data into MarketEvent."""

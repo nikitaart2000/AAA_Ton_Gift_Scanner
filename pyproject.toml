@@ -14,6 +14,7 @@ asyncpg = "^0.29.0"
 redis = {extras = ["hiredis"], version = "^5.0.1"}
 aiohttp = "^3.9.1"
 curl-cffi = "^0.6.0"
+tonnelmp = "^1.2"
 fastapi = "^0.108.0"
 uvicorn = {extras = ["standard"], version = "^0.25.0"}
 aiogram = "^3.3.0"
