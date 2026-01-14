@@ -196,8 +196,12 @@ class TonApiCollector:
             if not nft:
                 return None
 
-            # Get NFT address as gift_id
-            nft_address = nft.get("address") or nft_transfer.get("nft")
+            # Handle both string address and object formats
+            if isinstance(nft, str):
+                nft_address = nft
+                nft = {}  # Empty dict for metadata extraction
+            else:
+                nft_address = nft.get("address") or nft_transfer.get("nft")
 
             if not nft_address:
                 return None
