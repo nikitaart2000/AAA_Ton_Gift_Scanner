@@ -56,11 +56,11 @@ class GetGemsSale:
     """NFT sale event from GetGems."""
     nft_address: str
     nft_name: str
-    collection_name: Optional[str] = None
     price: Decimal  # In TON
     buyer_address: str
     seller_address: str
     timestamp: datetime
+    collection_name: Optional[str] = None
 
 
 class GetGemsService:
