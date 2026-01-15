@@ -167,87 +167,86 @@ class OSINTService:
         Returns:
             OSINTReport with all gathered information
         """
-        # Get Telegram client
-        async with tg_client_manager.lock:
-            client = await tg_client_manager.get_client()
-            if not client:
+        # Get Telegram client (get_client handles its own locking)
+        client = await tg_client_manager.get_client()
+        if not client:
+            return OSINTReport(
+                profile=UserProfile(user_id=0),
+                error="Telegram client not available"
+            )
+
+        try:
+            # Resolve user
+            if isinstance(username_or_id, str):
+                # Remove @ if present
+                username_or_id = username_or_id.lstrip("@")
+
+                # Try to parse as int
+                try:
+                    user_id = int(username_or_id)
+                    entity = await client.get_entity(user_id)
+                except ValueError:
+                    entity = await client.get_entity(username_or_id)
+            else:
+                entity = await client.get_entity(username_or_id)
+
+            if not isinstance(entity, User):
                 return OSINTReport(
                     profile=UserProfile(user_id=0),
-                    error="Telegram client not available"
+                    error="Not a user (might be a channel or chat)"
                 )
+
+            # Get full user info
+            full_user_result = await client(GetFullUserRequest(entity))
+            full_user: UserFull = full_user_result.full_user
+            user: User = full_user_result.users[0]
+
+            # Build profile
+            profile = UserProfile(
+                user_id=user.id,
+                username=user.username,
+                first_name=user.first_name,
+                last_name=user.last_name,
+                is_premium=user.premium or False,
+                is_bot=user.bot or False,
+                is_verified=user.verified or False,
+                bio=full_user.about
+            )
+
+            # Get gifts received by user
+            gifts_received = []
+            stats = GiftStats()
 
             try:
-                # Resolve user
-                if isinstance(username_or_id, str):
-                    # Remove @ if present
-                    username_or_id = username_or_id.lstrip("@")
+                # Get star gifts for this user
+                gifts_result = await client(GetSavedStarGiftsRequest(
+                    peer=entity,
+                    offset="",
+                    limit=100
+                ))
 
-                    # Try to parse as int
-                    try:
-                        user_id = int(username_or_id)
-                        entity = await client.get_entity(user_id)
-                    except ValueError:
-                        entity = await client.get_entity(username_or_id)
-                else:
-                    entity = await client.get_entity(username_or_id)
-
-                if not isinstance(entity, User):
-                    return OSINTReport(
-                        profile=UserProfile(user_id=0),
-                        error="Not a user (might be a channel or chat)"
-                    )
-
-                # Get full user info
-                full_user_result = await client(GetFullUserRequest(entity))
-                full_user: UserFull = full_user_result.full_user
-                user: User = full_user_result.users[0]
-
-                # Build profile
-                profile = UserProfile(
-                    user_id=user.id,
-                    username=user.username,
-                    first_name=user.first_name,
-                    last_name=user.last_name,
-                    is_premium=user.premium or False,
-                    is_bot=user.bot or False,
-                    is_verified=user.verified or False,
-                    bio=full_user.about
-                )
-
-                # Get gifts received by user
-                gifts_received = []
-                stats = GiftStats()
-
-                try:
-                    # Get star gifts for this user
-                    gifts_result = await client(GetSavedStarGiftsRequest(
-                        peer=entity,
-                        offset="",
-                        limit=100
-                    ))
-
-                    for gift in gifts_result.gifts:
-                        # Extract gift info
-                        gift_info = self._parse_gift(gift)
-                        if gift_info:
-                            gifts_received.append(gift_info)
-                            stats.add_gift(gift_info)
-
-                except Exception as e:
-                    logger.warning(f"Failed to get gifts for user: {e}")
-
-                return OSINTReport(
-                    profile=profile,
-                    gifts_received=gifts_received,
-                    stats=stats
-                )
+                for gift in gifts_result.gifts:
+                    # Extract gift info
+                    gift_info = self._parse_gift(gift)
+                    if gift_info:
+                        gifts_received.append(gift_info)
+                        stats.add_gift(gift_info)
 
             except Exception as e:
-                logger.error(f"OSINT lookup failed: {e}", exc_info=True)
-                return OSINTReport(
-                    profile=UserProfile(user_id=0),
-                    error=str(e)
-                )
+                logger.warning(f"Failed to get gifts for user: {e}")
+
+            return OSINTReport(
+                profile=profile,
+                gifts_received=gifts_received,
+                stats=stats
+            )
+
+        except Exception as e:
+            logger.error(f"OSINT lookup failed: {e}", exc_info=True)
+            return OSINTReport(
+                profile=UserProfile(user_id=0),
+                error=str(e)
+            )
 
     def _parse_gift(self, gift) -> Optional[GiftInfo]:
         """Parse a gift object from Telegram API."""
