@@ -16,6 +16,7 @@ from src.core.models import (
     BLACK_PACK_BACKGROUNDS,
 )
 from src.core.analytics import analytics_engine
+from src.services.telegram_stats import telegram_stats
 from src.storage.postgres import db
 from src.storage.redis_client import redis_client
 from sqlalchemy import text
@@ -57,10 +58,29 @@ class AlertEngine:
             logger.debug(f"No analytics available: {event.asset_key}")
             return None
 
-        # Calculate ARP and profit
-        arp = await analytics_engine.calculate_arp(
-            analytics, background_filter=user_settings.background_filter
-        )
+        # Получаем ARP из Telegram (average_price за последний месяц)
+        # Используем gift_id как slug (например, "icecream-172405")
+        tg_stats = None
+        arp = None
+        reference_source = "telegram"
+
+        if event.gift_id:
+            tg_stats = await telegram_stats.get_gift_stats(event.gift_id)
+            if tg_stats and tg_stats.average_price_ton:
+                arp = tg_stats.average_price_ton
+                logger.debug(
+                    f"Telegram ARP for {event.gift_id}: {arp} TON "
+                    f"(avg={tg_stats.average_price} {tg_stats.currency})"
+                )
+
+        # Fallback на старый расчёт ARP если Telegram недоступен
+        if not arp or arp <= 0:
+            arp = await analytics_engine.calculate_arp(
+                analytics, background_filter=user_settings.background_filter
+            )
+            reference_source = "calculated"
+            logger.debug(f"Using calculated ARP: {arp} TON")
+
         if not arp or arp <= 0:
             logger.debug(f"Invalid ARP: {event.asset_key}")
             return None
@@ -140,7 +160,9 @@ class AlertEngine:
             floor_black_pack = analytics.floor_2nd
 
         # Determine reference type
-        reference_type = self._get_reference_type(user_settings, event)
+        reference_type = self._get_reference_type(
+            user_settings, event, reference_source, tg_stats
+        )
 
         # Create alert
         alert = Alert(
@@ -170,6 +192,11 @@ class AlertEngine:
             source=event.source,
             event_type=event.event_type,
             marketplace=event.marketplace,
+            # Telegram statistics
+            tg_floor_price=tg_stats.floor_price_ton if tg_stats else None,
+            tg_avg_price=tg_stats.average_price_ton if tg_stats else None,
+            tg_max_price=tg_stats.estimated_max_price_ton if tg_stats else None,
+            tg_listed_count=tg_stats.listed_count if tg_stats else None,
         )
 
         # Set cooldown
@@ -254,8 +281,19 @@ class AlertEngine:
 
         return True
 
-    def _get_reference_type(self, settings: UserSettings, event: MarketEvent) -> str:
+    def _get_reference_type(
+        self,
+        settings: UserSettings,
+        event: MarketEvent,
+        source: str = "calculated",
+        tg_stats=None
+    ) -> str:
         """Get human-readable reference type."""
+        if source == "telegram" and tg_stats:
+            # Показываем источник Telegram с валютой
+            return f"TG avg ({tg_stats.currency})"
+
+        # Fallback на старые reference types
         if settings.background_filter == BackgroundFilter.BLACK_PACK:
             return "2nd floor black_pack"
         elif settings.background_filter == BackgroundFilter.NONE:

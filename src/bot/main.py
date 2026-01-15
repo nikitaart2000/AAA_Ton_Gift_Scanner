@@ -154,26 +154,30 @@ class TelegramBot:
         lines.append("")
         lines.append("<b>📊 РЫНОК</b>")
 
-        # Floors
-        if alert.floor_black_pack:
-            lines.append(f"├─ Black Pack 2-й флор: {alert.floor_black_pack} TON")
-        if alert.floor_general:
-            floor_label = (
-                "Общий 2-й флор" if alert.floor_black_pack else "2-й флор"
-            )
-            lines.append(f"├─ {floor_label}: {alert.floor_general} TON")
+        # Telegram stats (официальная статистика)
+        if alert.tg_avg_price:
+            lines.append(f"├─ <b>TG Floor:</b> {alert.tg_floor_price} TON")
+            lines.append(f"├─ <b>TG Avg:</b> {alert.tg_avg_price} TON")
+            if alert.tg_max_price:
+                lines.append(f"├─ <b>TG Max:</b> ~{alert.tg_max_price} TON")
+            if alert.tg_listed_count:
+                lines.append(f"├─ <b>Листингов:</b> {alert.tg_listed_count}")
+        else:
+            # Fallback на старые флоры
+            if alert.floor_black_pack:
+                lines.append(f"├─ Black Pack 2-й флор: {alert.floor_black_pack} TON")
+            if alert.floor_general:
+                floor_label = (
+                    "Общий 2-й флор" if alert.floor_black_pack else "2-й флор"
+                )
+                lines.append(f"├─ {floor_label}: {alert.floor_general} TON")
 
         lines.append(f"└─ <b>Ликвидность:</b> {alert.liquidity_score}/10")
 
         # Sales data
-        if alert.sales_q25 or alert.sales_48h > 0:
+        if alert.sales_48h > 0:
             lines.append("")
-            lines.append("<b>🛒 ПРОДАЖИ</b>")
-            if alert.sales_q25 and alert.sales_q75:
-                lines.append(
-                    f"├─ Q25: {alert.sales_q25} | Q75: {alert.sales_q75} | Макс: {alert.sales_max}"
-                )
-            lines.append(f"└─ <b>Продаж за 48ч:</b> {alert.sales_48h}")
+            lines.append(f"🛒 <b>Продаж за 48ч:</b> {alert.sales_48h}")
 
         lines.append("")
 

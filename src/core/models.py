@@ -265,7 +265,7 @@ class Alert(BaseModel):
     price: Decimal
     profit_pct: Decimal
     reference_price: Decimal
-    reference_type: str  # "2nd floor black_pack", "2nd floor general", etc
+    reference_type: str  # "TG avg (CAD)", "2nd floor black_pack", etc
     hotness: Decimal
     liquidity_score: Decimal
     confidence_level: ConfidenceLevel
@@ -282,6 +282,12 @@ class Alert(BaseModel):
     source: EventSource
     event_type: EventType
     marketplace: Optional[Marketplace] = None
+
+    # Telegram statistics (когда доступны)
+    tg_floor_price: Optional[Decimal] = None  # Минимальная цена в TON
+    tg_avg_price: Optional[Decimal] = None    # Средняя цена в TON
+    tg_max_price: Optional[Decimal] = None    # Расчётная макс. цена в TON
+    tg_listed_count: Optional[int] = None     # Количество листингов
 
     @property
     def marketplace_url(self) -> str:
@@ -306,6 +312,9 @@ class Alert(BaseModel):
         "sales_q25",
         "sales_q75",
         "sales_max",
+        "tg_floor_price",
+        "tg_avg_price",
+        "tg_max_price",
         mode="before",
     )
     @classmethod

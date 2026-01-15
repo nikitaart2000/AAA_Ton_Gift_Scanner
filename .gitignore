@@ -70,3 +70,4 @@ nul
 *.csv
 *baryga_key*
 test-*.html
+telegram_session.session
