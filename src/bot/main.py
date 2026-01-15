@@ -189,7 +189,7 @@ class TelegramBot:
         # Marketplace info
         if alert.marketplace:
             marketplace_names = {
-                "portals": "CryptoBot (Portals)",
+                "portals": "Portals",
                 "mrkt": "MRKT",
                 "tonnel": "Tonnel",
                 "getgems": "GetGems",

@@ -38,14 +38,16 @@ class Marketplace(str, Enum):
     @property
     def url_base(self) -> str:
         """Get marketplace URL base."""
+        # Use Telegram's native NFT link (t.me/nft/<slug>) - universal for all gifts
+        # Fragment has its own web interface
         urls = {
-            "portals": "https://t.me/CryptoBot?start=gift-",
-            "mrkt": "https://mrkt.ton.org/gift/",
-            "tonnel": "https://market.tonnel.network/gift/",
-            "getgems": "https://getgems.io/collection/",
+            "portals": "https://t.me/nft/",
+            "mrkt": "https://t.me/nft/",
+            "tonnel": "https://t.me/nft/",
+            "getgems": "https://t.me/nft/",
             "fragment": "https://fragment.com/gift/",
         }
-        return urls.get(self.value, "")
+        return urls.get(self.value, "https://t.me/nft/")
 
     def get_gift_url(self, gift_id: str) -> str:
         """Get full URL for a gift."""

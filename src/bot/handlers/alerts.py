@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 # Marketplace button labels
 MARKETPLACE_LABELS = {
-    Marketplace.PORTALS: "CryptoBot",
+    Marketplace.PORTALS: "Portals",
     Marketplace.MRKT: "MRKT",
     Marketplace.TONNEL: "Tonnel",
     Marketplace.GETGEMS: "GetGems",
