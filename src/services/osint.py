@@ -168,7 +168,9 @@ class OSINTService:
             OSINTReport with all gathered information
         """
         # Get Telegram client (get_client handles its own locking)
+        logger.info(f"OSINT: Starting lookup for {username_or_id}")
         client = await tg_client_manager.get_client()
+        logger.info(f"OSINT: Got client: {client is not None}")
         if not client:
             return OSINTReport(
                 profile=UserProfile(user_id=0),
@@ -177,6 +179,7 @@ class OSINTService:
 
         try:
             # Resolve user
+            logger.info(f"OSINT: Resolving entity for {username_or_id}")
             if isinstance(username_or_id, str):
                 # Remove @ if present
                 username_or_id = username_or_id.lstrip("@")
@@ -189,6 +192,7 @@ class OSINTService:
                     entity = await client.get_entity(username_or_id)
             else:
                 entity = await client.get_entity(username_or_id)
+            logger.info(f"OSINT: Entity resolved: {entity}")
 
             if not isinstance(entity, User):
                 return OSINTReport(
