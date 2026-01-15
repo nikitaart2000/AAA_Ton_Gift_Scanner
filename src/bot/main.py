@@ -81,8 +81,8 @@ class TelegramBot:
         # Format alert message
         message = self._format_alert(alert)
 
-        # Get inline keyboard
-        keyboard = alerts.get_alert_keyboard(alert)
+        # Get inline keyboard (async для получения MRKT listing ID)
+        keyboard = await alerts.get_alert_keyboard(alert)
 
         # Send to each user
         for user_id in user_ids:

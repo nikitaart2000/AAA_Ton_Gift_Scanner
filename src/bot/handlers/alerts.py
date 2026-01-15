@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from src.core.models import Alert, Marketplace
 from src.storage.postgres import db
+from src.services.mrkt_api import mrkt_api
 from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
@@ -19,7 +20,7 @@ MARKETPLACE_LABELS = {
 }
 
 
-def get_alert_keyboard(alert: Alert) -> InlineKeyboardMarkup:
+async def get_alert_keyboard(alert: Alert) -> InlineKeyboardMarkup:
     """Create inline keyboard for alert."""
     buttons = []
 
@@ -27,6 +28,17 @@ def get_alert_keyboard(alert: Alert) -> InlineKeyboardMarkup:
     if alert.marketplace:
         main_url = alert.marketplace_url
         label = MARKETPLACE_LABELS.get(alert.marketplace, alert.marketplace.value.upper())
+
+        # Для MRKT пытаемся получить прямую ссылку на листинг
+        if alert.marketplace == Marketplace.MRKT:
+            try:
+                listing_id = await mrkt_api.get_listing_id(alert.gift_id)
+                if listing_id:
+                    main_url = f"https://t.me/mrkt/app?startapp={listing_id}"
+                    logger.debug(f"Got MRKT listing ID for {alert.gift_id}: {listing_id}")
+            except Exception as e:
+                logger.warning(f"Failed to get MRKT listing ID: {e}")
+
         if main_url:
             buttons.append([
                 InlineKeyboardButton(text=f"🎁 Открыть в {label}", url=main_url)

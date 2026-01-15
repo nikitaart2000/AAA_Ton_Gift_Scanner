@@ -1,6 +1,5 @@
 """Telegram gift statistics service using MTProto API."""
 
-import os
 import logging
 import time
 import asyncio
@@ -8,13 +7,13 @@ import aiohttp
 from decimal import Decimal
 from typing import Optional
 from dataclasses import dataclass
-from pathlib import Path
 
-from telethon import TelegramClient
 from telethon.tl.functions.payments import (
     GetUniqueStarGiftRequest,
     GetUniqueStarGiftValueInfoRequest,
 )
+
+from src.services.telegram_client import tg_client_manager
 
 logger = logging.getLogger(__name__)
 
@@ -182,51 +181,9 @@ class TelegramStatsService:
     """Service for fetching gift statistics from Telegram MTProto API."""
 
     def __init__(self):
-        self.api_id = int(os.getenv("TELEGRAM_API_ID", "0"))
-        self.api_hash = os.getenv("TELEGRAM_API_HASH", "")
-        self.session_path = Path(__file__).parent.parent.parent / "telegram_session"
-        self.client: Optional[TelegramClient] = None
-        self._connected = False
-        self._lock = asyncio.Lock()  # Lock для избежания concurrent access к session
-
         # Cache to avoid hitting API too often
         self._cache: dict[str, tuple[GiftStats, float]] = {}
         self._cache_ttl = 300  # 5 minutes
-
-    async def connect(self) -> bool:
-        """Connect to Telegram."""
-        if self._connected and self.client:
-            return True
-
-        if not self.api_id or not self.api_hash:
-            logger.error("TELEGRAM_API_ID and TELEGRAM_API_HASH not set")
-            return False
-
-        try:
-            self.client = TelegramClient(
-                str(self.session_path),
-                self.api_id,
-                self.api_hash
-            )
-            await self.client.connect()
-
-            if not await self.client.is_user_authorized():
-                logger.warning("Telegram session not authorized. Run auth script first.")
-                return False
-
-            self._connected = True
-            logger.info("Connected to Telegram MTProto API")
-            return True
-
-        except Exception as e:
-            logger.error(f"Failed to connect to Telegram: {e}")
-            return False
-
-    async def disconnect(self):
-        """Disconnect from Telegram."""
-        if self.client:
-            await self.client.disconnect()
-            self._connected = False
 
     async def get_gift_stats(self, slug: str) -> Optional[GiftStats]:
         """Get statistics for a gift by slug.
@@ -244,20 +201,21 @@ class TelegramStatsService:
                 logger.debug(f"Cache hit for {slug}")
                 return stats
 
-        # Use lock for Telegram API calls to avoid SQLite "database is locked" errors
-        async with self._lock:
+        # Use shared lock for Telegram API calls to avoid SQLite "database is locked" errors
+        async with tg_client_manager.lock:
             # Double-check cache after acquiring lock
             if slug in self._cache:
                 stats, timestamp = self._cache[slug]
                 if time.time() - timestamp < self._cache_ttl:
                     return stats
 
-            if not await self.connect():
+            client = await tg_client_manager.get_client()
+            if not client:
                 return None
 
             try:
                 # Get basic gift info
-                gift_result = await self.client(GetUniqueStarGiftRequest(slug=slug))
+                gift_result = await client(GetUniqueStarGiftRequest(slug=slug))
 
                 if not gift_result or not gift_result.gift:
                     logger.warning(f"No gift data for slug: {slug}")
@@ -266,7 +224,7 @@ class TelegramStatsService:
                 gift = gift_result.gift
 
                 # Get value info (floor, average, etc.)
-                value_info = await self.client(GetUniqueStarGiftValueInfoRequest(slug=slug))
+                value_info = await client(GetUniqueStarGiftValueInfoRequest(slug=slug))
 
                 if not value_info:
                     logger.warning(f"No value info for slug: {slug}")
