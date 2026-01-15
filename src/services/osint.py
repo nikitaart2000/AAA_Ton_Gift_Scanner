@@ -101,86 +101,117 @@ class OSINTReport:
     error: Optional[str] = None
 
     def format_telegram_message(self) -> str:
-        """Format report as Telegram message."""
+        """Format report as Telegram message - Барыга style."""
         lines = []
 
+        # Header с вайбом
+        lines.append(f"🔍 <b>ДОСЬЕ НА ХУЕСОСА</b>")
+        lines.append(f"━━━━━━━━━━━━━━━━━━━━")
+
         # Profile section
-        lines.append(f"👤 <b>Профиль пользователя</b>")
-        lines.append(f"├ Имя: {self.profile.full_name}")
-        lines.append(f"├ Username: {self.profile.mention}")
-        lines.append(f"├ ID: <code>{self.profile.user_id}</code>")
-        lines.append(f"├ Premium: {'✅ Да' if self.profile.is_premium else '❌ Нет'}")
-        lines.append(f"├ Бот: {'🤖 Да' if self.profile.is_bot else '👤 Нет'}")
+        lines.append(f"👤 <b>{self.profile.full_name}</b>")
+        if self.profile.username:
+            lines.append(f"   └ <a href='https://t.me/{self.profile.username}'>@{self.profile.username}</a>")
+        lines.append(f"🆔 <code>{self.profile.user_id}</code>")
+
+        # Status badges
+        badges = []
+        if self.profile.is_premium:
+            badges.append("⭐️ ПРЕМИУМ")
+        if self.profile.is_bot:
+            badges.append("🤖 БОТ")
+        if self.profile.is_verified:
+            badges.append("✅ ВЕРИФИЦИРОВАН")
+        if badges:
+            lines.append(f"   {' • '.join(badges)}")
+
         if self.profile.bio:
-            bio_short = self.profile.bio[:100] + "..." if len(self.profile.bio) > 100 else self.profile.bio
-            lines.append(f"└ Bio: {bio_short}")
-        else:
-            lines.append(f"└ Bio: -")
+            bio_short = self.profile.bio[:80] + "..." if len(self.profile.bio) > 80 else self.profile.bio
+            lines.append(f"📝 {bio_short}")
 
-        lines.append("")
+        lines.append(f"━━━━━━━━━━━━━━━━━━━━")
 
-        # Stats section
-        lines.append(f"📊 <b>Статистика подарков</b>")
-        lines.append(f"├ Публичных подарков: {self.stats.total_gifts}")
-        lines.append(f"├ Общая стоимость: {self.stats.total_stars}⭐️")
-        lines.append(f"├ Уникальных отправителей: {self.stats.unique_senders}")
-        lines.append(f"└ <i>Показаны только подарки, сохранённые в профиле</i>")
-
-        # Top senders
-        if self.stats.gifts_by_sender:
+        # Gift stats section
+        if self.stats.total_gifts > 0:
             lines.append("")
-            lines.append(f"🎁 <b>Подарки по отправителям</b>")
+            lines.append(f"🎁 <b>ЧЁ НАСОБИРАЛ</b>")
+            lines.append(f"📦 Подарков: {self.stats.total_gifts}")
+            lines.append(f"⭐️ Звёзд нахапал: {self.stats.total_stars}")
+            lines.append(f"👥 Дарителей: {self.stats.unique_senders}")
 
-            # Sort by total stars
-            sorted_senders = sorted(
-                self.stats.gifts_by_sender.values(),
-                key=lambda x: x["total_stars"],
-                reverse=True
-            )[:5]  # Top 5
+            # Top senders with vibe
+            if self.stats.gifts_by_sender:
+                lines.append("")
+                lines.append(f"🤑 <b>КТО ДАРИЛ</b>")
 
-            for i, sender in enumerate(sorted_senders, 1):
-                sender_name = sender["name"] or "Unknown"
-                sender_mention = f"@{sender['username']}" if sender["username"] else f"[ID: {sender['user_id']}]"
-                gift_count = len(sender["gifts"])
-                total_stars = sender["total_stars"]
+                sorted_senders = sorted(
+                    self.stats.gifts_by_sender.values(),
+                    key=lambda x: x["total_stars"],
+                    reverse=True
+                )[:5]
 
-                lines.append(f"")
-                lines.append(f"┌─ #{i} {sender_mention}")
-                lines.append(f"├─ 👤 {sender_name}")
-                lines.append(f"├─ 📦 Подарков: {gift_count} на {total_stars}⭐️")
+                for i, sender in enumerate(sorted_senders, 1):
+                    sender_name = sender["name"] or "Аноним"
+                    if sender["username"]:
+                        sender_link = f"<a href='https://t.me/{sender['username']}'>@{sender['username']}</a>"
+                    elif sender["user_id"]:
+                        sender_link = f"[{sender['user_id']}]"
+                    else:
+                        sender_link = "🥷 Скрытый"
 
-                # Show last 3 gifts from this sender
-                recent_gifts = sorted(sender["gifts"], key=lambda g: g.date, reverse=True)[:3]
-                for j, gift in enumerate(recent_gifts):
-                    date_str = gift.date.strftime("%d.%m.%Y %H:%M")
-                    prefix = "└─" if j == len(recent_gifts) - 1 else "├─"
-                    lines.append(f"{prefix} 🎁 {gift.stars}⭐️ • {date_str}")
+                    gift_count = len(sender["gifts"])
+                    total_stars = sender["total_stars"]
+
+                    lines.append(f"")
+                    lines.append(f"┌ #{i} {sender_link}")
+                    lines.append(f"│  {sender_name}")
+                    lines.append(f"├ 📦 {gift_count} шт. на {total_stars}⭐️")
+
+                    # Show gifts
+                    recent_gifts = sorted(sender["gifts"], key=lambda g: g.date, reverse=True)[:3]
+                    for j, gift in enumerate(recent_gifts):
+                        date_str = gift.date.strftime("%d.%m.%Y %H:%M")
+                        saved = "👁" if gift.is_saved else ""
+                        prefix = "└" if j == len(recent_gifts) - 1 else "├"
+                        lines.append(f"{prefix} {gift.stars}⭐️ • {date_str} {saved}")
+        else:
+            lines.append("")
+            lines.append(f"🎁 <b>ЧЁ НАСОБИРАЛ</b>")
+            lines.append(f"   <i>Хуй да нихуя - подарки спрятал или нету</i>")
 
         # TON blockchain section
-        if self.ton_address:
-            lines.append("")
-            lines.append(f"💎 <b>TON Кошелёк</b>")
-            # Сокращаем адрес для отображения
-            short_addr = f"{self.ton_address[:6]}...{self.ton_address[-4:]}"
-            lines.append(f"├ Адрес: <code>{short_addr}</code>")
-            lines.append(f"├ Баланс: {self.ton_balance:.2f} TON")
-            lines.append(f"└ NFT подарков: {len(self.nft_gifts)}")
+        lines.append("")
+        lines.append(f"━━━━━━━━━━━━━━━━━━━━")
+        lines.append(f"💎 <b>КОШЕЛЬКИ</b>")
 
-            # Show NFT gifts
+        if self.ton_address:
+            lines.append(f"")
+            lines.append(f"📍 <code>{self.ton_address}</code>")
+            lines.append(f"💰 Баланс: <b>{self.ton_balance:.2f} TON</b>")
+
+            # Links
+            lines.append(f"🔗 <a href='https://tonviewer.com/{self.ton_address}'>TonViewer</a> • "
+                        f"<a href='https://getgems.io/user/{self.ton_address}'>GetGems</a> • "
+                        f"<a href='https://dedust.io/portfolio/{self.ton_address}'>DeDust</a>")
+
+            # NFT gifts
             if self.nft_gifts:
                 lines.append("")
-                lines.append(f"🖼 <b>NFT Подарки на блокчейне</b>")
-                for i, nft in enumerate(self.nft_gifts[:5], 1):  # Top 5
+                nft_word = "ёбаных NFT" if len(self.nft_gifts) > 3 else "NFT"
+                lines.append(f"🖼 <b>{len(self.nft_gifts)} {nft_word}</b>")
+                for i, nft in enumerate(self.nft_gifts[:5], 1):
                     price_str = f" • {nft.last_sale_price:.2f} TON" if nft.last_sale_price else ""
                     prefix = "└" if i == min(5, len(self.nft_gifts)) else "├"
                     lines.append(f"{prefix} {nft.name}{price_str}")
 
                 if len(self.nft_gifts) > 5:
-                    lines.append(f"  <i>...и ещё {len(self.nft_gifts) - 5}</i>")
+                    lines.append(f"   <i>...и ещё {len(self.nft_gifts) - 5} штук</i>")
         else:
-            lines.append("")
-            lines.append(f"💎 <b>TON Кошелёк</b>")
-            lines.append(f"└ <i>Не найден (нет привязки username.t.me)</i>")
+            lines.append(f"   <i>Кошелёк не найден - либо нет, либо не привязан</i>")
+
+        lines.append("")
+        lines.append(f"━━━━━━━━━━━━━━━━━━━━")
+        lines.append(f"🔥 <i>Powered by Барыга OSINT</i>")
 
         return "\n".join(lines)
 
