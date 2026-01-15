@@ -1,4 +1,11 @@
-"""OSINT service for user lookup and gift history analysis."""
+"""OSINT service for user lookup and gift history analysis.
+
+Enhanced with:
+- Fragment NFT metadata parsing
+- GetGems marketplace data
+- TonAPI blockchain history
+- Database caching for gift history
+"""
 
 import logging
 from dataclasses import dataclass, field
@@ -12,6 +19,8 @@ from telethon.tl.types import User, UserFull
 
 from src.services.telegram_client import tg_client_manager
 from src.services.ton_api import ton_api, NFTGift
+from src.services.fragment_metadata import fragment_metadata, FragmentGiftMetadata
+from src.services.getgems_api import getgems_api, GetGemsNFT
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +108,12 @@ class OSINTReport:
     ton_balance: float = 0.0
     nft_gifts: list[NFTGift] = field(default_factory=list)
     nft_history: list[dict] = field(default_factory=list)  # NFT transfer history
+    # GetGems marketplace data
+    getgems_nfts: list[GetGemsNFT] = field(default_factory=list)
+    getgems_listed_count: int = 0
+    getgems_total_value: Optional[Decimal] = None
+    # Fragment metadata for gifts
+    fragment_metadata: list[FragmentGiftMetadata] = field(default_factory=list)
     error: Optional[str] = None
 
     def format_telegram_message(self) -> str:
@@ -207,6 +222,23 @@ class OSINTReport:
 
                 if len(self.nft_gifts) > 5:
                     lines.append(f"   <i>...и ещё {len(self.nft_gifts) - 5} штук</i>")
+
+            # GetGems marketplace listings
+            if self.getgems_nfts:
+                lines.append("")
+                lines.append(f"🛒 <b>GETGEMS ЛИСТИНГИ</b>")
+                listed = [n for n in self.getgems_nfts if n.sale_price]
+                if listed:
+                    lines.append(f"📊 На продаже: {len(listed)} шт.")
+                    total_val = sum(n.sale_price for n in listed if n.sale_price)
+                    lines.append(f"💵 Общая стоимость: {total_val:.2f} TON")
+                    for i, nft in enumerate(listed[:5], 1):
+                        prefix = "└" if i == min(5, len(listed)) else "├"
+                        lines.append(f"{prefix} {nft.name} • {nft.sale_price:.2f} TON")
+                    if len(listed) > 5:
+                        lines.append(f"   <i>...и ещё {len(listed) - 5}</i>")
+                else:
+                    lines.append(f"   <i>Ничего не продаёт</i>")
 
             # NFT history (blockchain transactions)
             if self.nft_history:
@@ -394,6 +426,25 @@ class OSINTService:
             except Exception as e:
                 logger.warning(f"Failed to get TON data: {e}", exc_info=True)
 
+            # Get GetGems marketplace data
+            getgems_nfts = []
+            try:
+                if ton_address:
+                    logger.info(f"OSINT: Getting GetGems NFTs for {ton_address}")
+                    getgems_nfts = await getgems_api.get_user_nfts(ton_address, limit=50)
+                    logger.info(f"OSINT: Found {len(getgems_nfts)} NFTs on GetGems")
+            except Exception as e:
+                logger.warning(f"Failed to get GetGems data: {e}", exc_info=True)
+
+            # Calculate GetGems totals
+            getgems_listed_count = len([n for n in getgems_nfts if n.sale_price])
+            getgems_total_value = None
+            if getgems_listed_count > 0:
+                getgems_total_value = sum(
+                    n.sale_price for n in getgems_nfts
+                    if n.sale_price
+                )
+
             return OSINTReport(
                 profile=profile,
                 gifts_received=gifts_received,
@@ -401,7 +452,10 @@ class OSINTService:
                 ton_address=ton_address,
                 ton_balance=ton_balance,
                 nft_gifts=nft_gifts,
-                nft_history=nft_history
+                nft_history=nft_history,
+                getgems_nfts=getgems_nfts,
+                getgems_listed_count=getgems_listed_count,
+                getgems_total_value=getgems_total_value
             )
 
         except Exception as e:
