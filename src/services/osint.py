@@ -98,6 +98,7 @@ class OSINTReport:
     ton_address: Optional[str] = None
     ton_balance: float = 0.0
     nft_gifts: list[NFTGift] = field(default_factory=list)
+    nft_history: list[dict] = field(default_factory=list)  # NFT transfer history
     error: Optional[str] = None
 
     def format_telegram_message(self) -> str:
@@ -206,6 +207,35 @@ class OSINTReport:
 
                 if len(self.nft_gifts) > 5:
                     lines.append(f"   <i>...и ещё {len(self.nft_gifts) - 5} штук</i>")
+
+            # NFT history (blockchain transactions)
+            if self.nft_history:
+                lines.append("")
+                lines.append(f"📜 <b>ИСТОРИЯ NFT ДВИЖУХ</b>")
+
+                for i, event in enumerate(self.nft_history[:10], 1):
+                    action = event.get("action", "")
+                    name = event.get("name", "NFT")
+                    ts = event.get("timestamp", 0)
+
+                    from datetime import datetime
+                    date_str = datetime.fromtimestamp(ts).strftime("%d.%m.%Y %H:%M") if ts else "?"
+
+                    if action == "transfer":
+                        sender = event.get("sender", "")[:8] + "..." if event.get("sender") else "?"
+                        recipient = event.get("recipient", "")[:8] + "..." if event.get("recipient") else "?"
+                        lines.append(f"├ 📤 {name}")
+                        lines.append(f"│  {sender} → {recipient}")
+                        lines.append(f"│  {date_str}")
+                    elif action == "purchase":
+                        price = event.get("price_ton", 0)
+                        buyer = event.get("buyer", "")[:8] + "..." if event.get("buyer") else "?"
+                        lines.append(f"├ 💰 {name} • {price:.2f} TON")
+                        lines.append(f"│  Покупатель: {buyer}")
+                        lines.append(f"│  {date_str}")
+
+                if len(self.nft_history) > 10:
+                    lines.append(f"└ <i>...и ещё {len(self.nft_history) - 10} транзакций</i>")
         else:
             lines.append(f"   <i>Кошелёк не найден - либо нет, либо не привязан</i>")
 
@@ -332,6 +362,7 @@ class OSINTService:
             ton_address = None
             ton_balance = 0.0
             nft_gifts = []
+            nft_history = []
 
             try:
                 # Пробуем резолвить TON адрес через username
@@ -349,6 +380,14 @@ class OSINTService:
                                 f"OSINT: TON wallet - balance: {ton_balance:.2f}, "
                                 f"NFT gifts: {len(nft_gifts)}"
                             )
+
+                        # Get NFT transaction history
+                        logger.info(f"OSINT: Getting NFT history for {ton_address}")
+                        raw_events = await ton_api.get_account_nft_history(ton_address, limit=50)
+                        if raw_events:
+                            parsed, _ = ton_api.parse_nft_events(raw_events)
+                            nft_history = parsed
+                            logger.info(f"OSINT: Got {len(nft_history)} NFT events")
                     else:
                         logger.info(f"OSINT: No TON address found for @{profile.username}")
 
@@ -361,7 +400,8 @@ class OSINTService:
                 stats=stats,
                 ton_address=ton_address,
                 ton_balance=ton_balance,
-                nft_gifts=nft_gifts
+                nft_gifts=nft_gifts,
+                nft_history=nft_history
             )
 
         except Exception as e:

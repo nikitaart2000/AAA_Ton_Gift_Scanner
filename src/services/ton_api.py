@@ -257,6 +257,111 @@ class TonAPIService:
             logger.warning(f"Failed to get NFT history: {e}")
             return []
 
+    async def get_account_nft_history(self, address: str, limit: int = 100) -> list[dict]:
+        """
+        Get NFT transfer history for an account.
+
+        This shows all NFT sends and receives - who sent what to whom.
+
+        Args:
+            address: TON wallet address
+            limit: Max number of events (1-1000)
+
+        Returns:
+            List of NFT events (transfers, purchases, etc.)
+        """
+        try:
+            session = await self._get_session()
+            url = f"{self.base_url}/accounts/{address}/nfts/history"
+
+            params = {"limit": min(limit, 1000)}
+
+            async with session.get(url, params=params) as resp:
+                if resp.status != 200:
+                    logger.warning(f"Failed to get NFT history for {address}: {resp.status}")
+                    return []
+
+                data = await resp.json()
+                events = data.get("events", [])
+                logger.info(f"Got {len(events)} NFT events for {address}")
+                return events
+
+        except Exception as e:
+            logger.warning(f"Failed to get account NFT history: {e}")
+            return []
+
+    def parse_nft_events(self, events: list[dict]) -> tuple[list[dict], list[dict]]:
+        """
+        Parse NFT events into sent and received gifts.
+
+        Args:
+            events: Raw events from TonAPI
+
+        Returns:
+            Tuple of (received_gifts, sent_gifts)
+        """
+        received = []
+        sent = []
+
+        for event in events:
+            try:
+                actions = event.get("actions", [])
+                timestamp = event.get("timestamp", 0)
+
+                for action in actions:
+                    action_type = action.get("type", "")
+
+                    # NFT Transfer
+                    if action_type == "NftItemTransfer":
+                        transfer = action.get("NftItemTransfer", {})
+                        nft = transfer.get("nft", {})
+                        sender = transfer.get("sender", {}).get("address", "")
+                        recipient = transfer.get("recipient", {}).get("address", "")
+
+                        gift_data = {
+                            "nft_address": nft.get("address", ""),
+                            "name": nft.get("metadata", {}).get("name", "Unknown"),
+                            "collection": nft.get("collection", {}).get("name", ""),
+                            "sender": sender,
+                            "recipient": recipient,
+                            "timestamp": timestamp,
+                            "action": "transfer"
+                        }
+
+                        # Определяем направление по контексту события
+                        received.append(gift_data)
+
+                    # NFT Purchase
+                    elif action_type == "NftPurchase":
+                        purchase = action.get("NftPurchase", {})
+                        nft = purchase.get("nft", {})
+                        buyer = purchase.get("buyer", {}).get("address", "")
+                        seller = purchase.get("seller", {}).get("address", "")
+                        amount = purchase.get("amount", {})
+
+                        # Цена в нанотонах
+                        price_nano = int(amount.get("value", 0))
+                        price_ton = price_nano / 1e9
+
+                        gift_data = {
+                            "nft_address": nft.get("address", ""),
+                            "name": nft.get("metadata", {}).get("name", "Unknown"),
+                            "collection": nft.get("collection", {}).get("name", ""),
+                            "buyer": buyer,
+                            "seller": seller,
+                            "price_ton": price_ton,
+                            "timestamp": timestamp,
+                            "action": "purchase"
+                        }
+
+                        received.append(gift_data)
+
+            except Exception as e:
+                logger.debug(f"Failed to parse event: {e}")
+                continue
+
+        return received, sent
+
 
 # Global instance
 ton_api = TonAPIService()
