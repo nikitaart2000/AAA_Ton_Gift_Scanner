@@ -37,9 +37,6 @@ async def cmd_lookup(message: Message):
 
     target = args[1].strip()
 
-    # Send "typing" status
-    await message.answer_chat_action("typing")
-
     # Send initial message
     status_msg = await message.reply(
         f"🔍 Ищу информацию о <code>{target}</code>...",
