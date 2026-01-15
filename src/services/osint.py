@@ -22,6 +22,8 @@ from src.services.ton_api import ton_api, NFTGift
 from src.services.fragment_metadata import fragment_metadata, FragmentGiftMetadata
 from src.services.getgems_api import getgems_api, GetGemsNFT
 from src.services.wallet_resolver import wallet_resolver, WalletMatch
+from src.storage.postgres import db
+from src.storage.gift_history import GiftHistoryService
 
 logger = logging.getLogger(__name__)
 
@@ -99,10 +101,23 @@ class GiftStats:
 
 
 @dataclass
+class SentGiftInfo:
+    """Information about a gift sent by the user."""
+    recipient_username: Optional[str] = None
+    recipient_name: Optional[str] = None
+    recipient_id: Optional[int] = None
+    gift_name: str = ""
+    stars_value: int = 0
+    date: Optional[datetime] = None
+
+
+@dataclass
 class OSINTReport:
     """Complete OSINT report for a user."""
     profile: UserProfile
     gifts_received: list[GiftInfo] = field(default_factory=list)
+    gifts_sent: list[SentGiftInfo] = field(default_factory=list)  # From our database!
+    recipients: dict[str, list[SentGiftInfo]] = field(default_factory=dict)  # Grouped by recipient
     stats: GiftStats = field(default_factory=GiftStats)
     # TON blockchain data - can have multiple wallets!
     wallet_matches: list[WalletMatch] = field(default_factory=list)
@@ -196,6 +211,57 @@ class OSINTReport:
             lines.append("")
             lines.append(f"🎁 <b>ЧЁ НАСОБИРАЛ</b>")
             lines.append(f"   <i>Хуй да нихуя - подарки спрятал или нету</i>")
+
+        # SENT GIFTS section (from our database!)
+        if self.gifts_sent or self.recipients:
+            lines.append("")
+            lines.append(f"━━━━━━━━━━━━━━━━━━━━")
+            lines.append(f"🎁 <b>КОМУ ДАРИЛ</b>")
+
+            total_sent = len(self.gifts_sent)
+            total_recipients = len(self.recipients)
+
+            if self.recipients:
+                lines.append(f"📊 Всего получателей: {total_recipients}")
+                lines.append("")
+
+                for i, (recipient_key, gifts) in enumerate(
+                    sorted(self.recipients.items(), key=lambda x: len(x[1]), reverse=True)[:5],
+                    1
+                ):
+                    # Get recipient info
+                    first_gift = gifts[0]
+                    if first_gift.recipient_username:
+                        recipient_link = f"@{first_gift.recipient_username}"
+                    elif first_gift.recipient_id:
+                        recipient_link = f"[ID: {first_gift.recipient_id}]"
+                    else:
+                        recipient_link = "Unknown"
+
+                    recipient_name = first_gift.recipient_name or ""
+                    total_stars = sum(g.stars_value for g in gifts)
+
+                    lines.append(f"┌─ #{i} {recipient_link}")
+                    if recipient_name:
+                        lines.append(f"│  {recipient_name}")
+                    lines.append(f"├─ 📦 Подарков: {len(gifts)} на {total_stars}⭐️")
+
+                    # Show recent gifts
+                    recent = sorted(gifts, key=lambda g: g.date or datetime.min, reverse=True)[:3]
+                    for j, gift in enumerate(recent):
+                        date_str = gift.date.strftime("%d.%m.%Y %H:%M") if gift.date else "?"
+                        prefix = "└" if j == len(recent) - 1 else "├"
+                        lines.append(f"{prefix}─ 🎁 {gift.stars_value}⭐️ • {date_str}")
+
+                    lines.append("")
+
+                if total_recipients > 5:
+                    lines.append(f"<i>...и ещё {total_recipients - 5} получателей</i>")
+
+                # Total stats
+                total_stars_sent = sum(g.stars_value for g in self.gifts_sent)
+                lines.append("")
+                lines.append(f"📈 <b>Итого:</b> {total_sent} подарков на {total_stars_sent}⭐️")
 
         # TON blockchain section
         lines.append("")
@@ -475,9 +541,49 @@ class OSINTService:
                     if n.sale_price
                 )
 
+            # Get SENT GIFTS from our database
+            gifts_sent = []
+            recipients = {}
+            try:
+                if db.session_factory:
+                    gift_history = GiftHistoryService(db.session_factory)
+                    logger.info(f"OSINT: Searching sent gifts for user_id={profile.user_id}, username={profile.username}")
+
+                    # Get gifts sent by this user from cached metadata
+                    cached_gifts = await gift_history.get_gifts_sent_by_user(
+                        user_id=profile.user_id,
+                        username=profile.username,
+                        limit=100
+                    )
+
+                    logger.info(f"OSINT: Found {len(cached_gifts)} sent gifts in database")
+
+                    # Convert to SentGiftInfo and group by recipient
+                    for cached in cached_gifts:
+                        sent_gift = SentGiftInfo(
+                            recipient_username=cached.recipient_username,
+                            recipient_name=None,  # Not stored
+                            recipient_id=cached.recipient_id,
+                            gift_name=cached.name or "",
+                            stars_value=0,  # Not stored yet
+                            date=cached.transfer_date
+                        )
+                        gifts_sent.append(sent_gift)
+
+                        # Group by recipient
+                        recipient_key = cached.recipient_username or str(cached.recipient_id) or "unknown"
+                        if recipient_key not in recipients:
+                            recipients[recipient_key] = []
+                        recipients[recipient_key].append(sent_gift)
+
+            except Exception as e:
+                logger.warning(f"Failed to get sent gifts from database: {e}", exc_info=True)
+
             return OSINTReport(
                 profile=profile,
                 gifts_received=gifts_received,
+                gifts_sent=gifts_sent,
+                recipients=recipients,
                 stats=stats,
                 wallet_matches=wallet_matches,
                 ton_address=ton_address,

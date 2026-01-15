@@ -4,6 +4,8 @@ import asyncio
 import logging
 from src.services.scanner_service import ScannerService
 from src.bot.main import telegram_bot
+from src.storage.postgres import db
+from src.workers.gift_collector import create_gift_collector
 
 # Setup logging
 logging.basicConfig(
@@ -26,6 +28,9 @@ async def main():
     # Create scanner with alert callback to bot
     scanner = ScannerService(alert_callback=telegram_bot.send_alert)
 
+    # Gift collector worker (for OSINT data collection)
+    gift_collector = None
+
     try:
         # Start bot first
         await telegram_bot.start()
@@ -37,12 +42,20 @@ async def main():
         logger.info("✅ Scanner ready")
         logger.info("")
 
+        # Start gift collector for OSINT database
+        if db.session_factory:
+            gift_collector = create_gift_collector(db.session_factory)
+            await gift_collector.start()
+            logger.info("✅ Gift Collector ready (OSINT data collection)")
+            logger.info("")
+
         logger.info("=" * 80)
         logger.info("🚀 ALL SYSTEMS OPERATIONAL!")
         logger.info("=" * 80)
         logger.info("")
         logger.info("📊 Monitoring TON Gifts market in real-time...")
         logger.info("🔥 Alerts will be sent to Telegram when deals are found")
+        logger.info("📡 Gift collector building OSINT database in background")
         logger.info("")
         logger.info("Press Ctrl+C to stop")
         logger.info("=" * 80)
@@ -58,6 +71,8 @@ async def main():
         logger.error(f"❌ Fatal error: {e}", exc_info=True)
     finally:
         logger.info("Stopping all services...")
+        if gift_collector:
+            await gift_collector.stop()
         await scanner.stop()
         await telegram_bot.stop()
         logger.info("✅ Shutdown complete")
