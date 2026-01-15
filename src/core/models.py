@@ -35,26 +35,26 @@ class Marketplace(str, Enum):
     FRAGMENT = "fragment"
     UNKNOWN = "unknown"
 
-    @property
-    def url_base(self) -> str:
-        """Get marketplace URL base."""
-        # Use Telegram's native NFT link (t.me/nft/<slug>) - universal for all gifts
-        # Fragment has its own web interface
-        urls = {
-            "portals": "https://t.me/nft/",
-            "mrkt": "https://t.me/nft/",
-            "tonnel": "https://t.me/nft/",
-            "getgems": "https://t.me/nft/",
-            "fragment": "https://fragment.com/gift/",
-        }
-        return urls.get(self.value, "https://t.me/nft/")
-
     def get_gift_url(self, gift_id: str) -> str:
-        """Get full URL for a gift."""
-        base = self.url_base
-        if not base:
-            return ""
-        return f"{base}{gift_id}"
+        """Get direct purchase URL for a gift on this marketplace.
+
+        Uses Telegram Mini App deep links with startapp parameter
+        to open the specific listing directly in the marketplace.
+        """
+        # Deep links to actual marketplace listings (for buying)
+        urls = {
+            # Portals: t.me/portals/market?startapp=<gift_id>
+            "portals": f"https://t.me/portals/market?startapp={gift_id}",
+            # MRKT: t.me/mrkt/app?startapp=<gift_id>
+            "mrkt": f"https://t.me/mrkt/app?startapp={gift_id}",
+            # Tonnel: t.me/TonnelMarketBot/market?startapp=<gift_id>
+            "tonnel": f"https://t.me/TonnelMarketBot/market?startapp={gift_id}",
+            # GetGems: use their web interface
+            "getgems": f"https://getgems.io/nft/{gift_id}",
+            # Fragment: web interface
+            "fragment": f"https://fragment.com/gift/{gift_id}",
+        }
+        return urls.get(self.value, f"https://t.me/nft/{gift_id}")
 
 
 class ConfidenceLevel(str, Enum):
