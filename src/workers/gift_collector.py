@@ -143,13 +143,16 @@ class GiftCollectorWorker:
         url = f"{TONAPI_SSE_URL}/accounts/transactions"
         params = {
             "accounts": ",".join(TELEGRAM_GIFT_COLLECTIONS),
-            "operations": NFT_TRANSFER_OPCODE
         }
 
         logger.info(f"Connecting to SSE stream for {len(TELEGRAM_GIFT_COLLECTIONS)} collections...")
 
-        async with session.get(url, params=params, timeout=None) as resp:
+        # Use aiohttp.ClientTimeout with total=None for infinite streaming
+        timeout = aiohttp.ClientTimeout(total=None, connect=30, sock_read=None)
+        async with session.get(url, params=params, timeout=timeout) as resp:
             if resp.status != 200:
+                body = await resp.text()
+                logger.error(f"SSE response body: {body[:500]}")
                 raise Exception(f"SSE connection failed: {resp.status}")
 
             logger.info("✅ SSE connected, listening for NFT transfers...")
