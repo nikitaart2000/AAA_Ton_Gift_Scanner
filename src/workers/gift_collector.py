@@ -14,6 +14,7 @@ Over time, this builds a comprehensive database of:
 import os
 import asyncio
 import logging
+import base64
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -32,12 +33,33 @@ TONAPI_BASE = "https://tonapi.io/v2"
 # NFT Transfer opcode (TEP-62)
 NFT_TRANSFER_OPCODE = "0x5fcc3d14"
 
-# Telegram Gift collection addresses
-TELEGRAM_GIFT_COLLECTIONS = [
+
+def to_raw_address(user_friendly: str) -> str:
+    """Convert user-friendly TON address to raw format (workchain:hex)."""
+    # Convert URL-safe base64 to standard base64
+    b64 = user_friendly.replace("-", "+").replace("_", "/")
+    # Add padding if needed
+    while len(b64) % 4:
+        b64 += "="
+    # Decode
+    data = base64.b64decode(b64)
+    # Extract workchain (byte 1) and account id (bytes 2-34)
+    workchain = data[1]
+    if workchain > 127:
+        workchain = workchain - 256  # Convert to signed
+    account_id = data[2:34].hex()
+    return f"{workchain}:{account_id}"
+
+
+# Telegram Gift collection addresses (user-friendly format)
+TELEGRAM_GIFT_COLLECTIONS_UF = [
     "EQAGcE-2lLyGHa-lsaP7S1gJlhfG6qFJ6MmkLU-xejbEFvIo",  # Telegram Gifts
     "EQCA14o1-VWhS2efqoh_9M1b_A9DtKTuoqfmkn83AbJzwnPi",  # Star Gifts
     "EQCE80Aln8YfldnQLwWMvOfloLGgmPY0eGDJz9ufG3gRui3D",  # Loot Bags
 ]
+
+# Convert to raw format for TonAPI SSE
+TELEGRAM_GIFT_COLLECTIONS = [to_raw_address(addr) for addr in TELEGRAM_GIFT_COLLECTIONS_UF]
 
 
 class GiftCollectorWorker:
