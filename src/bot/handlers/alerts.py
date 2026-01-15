@@ -23,46 +23,31 @@ def get_alert_keyboard(alert: Alert) -> InlineKeyboardMarkup:
     """Create inline keyboard for alert."""
     buttons = []
 
-    # Row 1: Marketplace links
-    marketplace_buttons = []
-
-    # Main marketplace button (where the item is listed)
+    # Row 1: Main marketplace button (where the item is listed)
     if alert.marketplace:
         main_url = alert.marketplace_url
         label = MARKETPLACE_LABELS.get(alert.marketplace, alert.marketplace.value.upper())
         if main_url:
-            marketplace_buttons.append(
-                InlineKeyboardButton(text=f"🎁 {label}", url=main_url)
-            )
+            buttons.append([
+                InlineKeyboardButton(text=f"🎁 Открыть в {label}", url=main_url)
+            ])
 
-    # Tonnel Mini App button (for cross-marketplace search)
-    tonnel_url = f"https://t.me/TonnelMarketBot/market?startapp={alert.gift_id}"
-    marketplace_buttons.append(
-        InlineKeyboardButton(text="🔍 Tonnel", url=tonnel_url)
-    )
-
-    # Fragment fallback link (if not already the main marketplace)
-    if alert.marketplace != Marketplace.FRAGMENT:
-        fragment_url = f"https://fragment.com/gift/{alert.gift_id}"
-        marketplace_buttons.append(
-            InlineKeyboardButton(text="💎 Fragment", url=fragment_url)
-        )
-
-    # Limit to 3 buttons per row
-    if len(marketplace_buttons) > 3:
-        marketplace_buttons = marketplace_buttons[:3]
-
-    if marketplace_buttons:
-        buttons.append(marketplace_buttons)
-
-    # Row 2: Actions
+    # Row 2: Actions (favorites + mute)
     buttons.append([
         InlineKeyboardButton(
-            text="⭐ В ИЗБРАННОЕ", callback_data=f"watch:{alert.asset_key}"
+            text="⭐ В избранное", callback_data=f"watch:{alert.asset_key}"
         ),
         InlineKeyboardButton(
-            text="🔇 ЗАГЛУШИТЬ 2Ч", callback_data=f"mute:{alert.asset_key}:2h"
+            text="🔇 Заглушить 2ч", callback_data=f"mute:{alert.asset_key}:2h"
         ),
+    ])
+
+    # Row 3: Additional marketplaces for info
+    tonnel_url = f"https://t.me/TonnelMarketBot/market?startapp={alert.gift_id}"
+    fragment_url = f"https://fragment.com/gift/{alert.gift_id}"
+    buttons.append([
+        InlineKeyboardButton(text="🔍 Tonnel", url=tonnel_url),
+        InlineKeyboardButton(text="💎 Fragment", url=fragment_url),
     ])
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
