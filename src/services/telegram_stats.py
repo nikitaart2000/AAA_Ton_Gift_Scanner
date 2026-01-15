@@ -201,65 +201,58 @@ class TelegramStatsService:
                 logger.debug(f"Cache hit for {slug}")
                 return stats
 
-        # Use shared lock for Telegram API calls to avoid SQLite "database is locked" errors
-        async with tg_client_manager.lock:
-            # Double-check cache after acquiring lock
-            if slug in self._cache:
-                stats, timestamp = self._cache[slug]
-                if time.time() - timestamp < self._cache_ttl:
-                    return stats
+        # get_client() handles its own locking internally
+        client = await tg_client_manager.get_client()
+        if not client:
+            return None
 
-            client = await tg_client_manager.get_client()
-            if not client:
+        try:
+            # Get basic gift info
+            gift_result = await client(GetUniqueStarGiftRequest(slug=slug))
+
+            if not gift_result or not gift_result.gift:
+                logger.warning(f"No gift data for slug: {slug}")
                 return None
 
-            try:
-                # Get basic gift info
-                gift_result = await client(GetUniqueStarGiftRequest(slug=slug))
+            gift = gift_result.gift
 
-                if not gift_result or not gift_result.gift:
-                    logger.warning(f"No gift data for slug: {slug}")
-                    return None
+            # Get value info (floor, average, etc.)
+            value_info = await client(GetUniqueStarGiftValueInfoRequest(slug=slug))
 
-                gift = gift_result.gift
-
-                # Get value info (floor, average, etc.)
-                value_info = await client(GetUniqueStarGiftValueInfoRequest(slug=slug))
-
-                if not value_info:
-                    logger.warning(f"No value info for slug: {slug}")
-                    return None
-
-                # Build stats object
-                stats = GiftStats(
-                    slug=slug,
-                    title=gift.title,
-                    floor_price_cents=getattr(value_info, 'floor_price', None),
-                    average_price_cents=getattr(value_info, 'average_price', None),
-                    initial_price_cents=getattr(value_info, 'initial_sale_price', None),
-                    value_cents=getattr(value_info, 'value', None),
-                    currency=getattr(value_info, 'currency', 'CAD'),
-                    listed_count=getattr(value_info, 'listed_count', 0) or 0,
-                    fragment_listed_count=getattr(value_info, 'fragment_listed_count', 0) or 0,
-                )
-
-                # Рассчитать цены в TON по актуальному курсу
-                await stats.calculate_ton_prices()
-
-                # Cache result
-                self._cache[slug] = (stats, time.time())
-
-                logger.debug(
-                    f"Gift stats for {slug}: floor={stats.floor_price} {stats.currency}, "
-                    f"avg={stats.average_price} {stats.currency}, "
-                    f"floor_ton={stats.floor_price_ton}, avg_ton={stats.average_price_ton}"
-                )
-
-                return stats
-
-            except Exception as e:
-                logger.error(f"Error fetching gift stats for {slug}: {e}")
+            if not value_info:
+                logger.warning(f"No value info for slug: {slug}")
                 return None
+
+            # Build stats object
+            stats = GiftStats(
+                slug=slug,
+                title=gift.title,
+                floor_price_cents=getattr(value_info, 'floor_price', None),
+                average_price_cents=getattr(value_info, 'average_price', None),
+                initial_price_cents=getattr(value_info, 'initial_sale_price', None),
+                value_cents=getattr(value_info, 'value', None),
+                currency=getattr(value_info, 'currency', 'CAD'),
+                listed_count=getattr(value_info, 'listed_count', 0) or 0,
+                fragment_listed_count=getattr(value_info, 'fragment_listed_count', 0) or 0,
+            )
+
+            # Рассчитать цены в TON по актуальному курсу
+            await stats.calculate_ton_prices()
+
+            # Cache result
+            self._cache[slug] = (stats, time.time())
+
+            logger.debug(
+                f"Gift stats for {slug}: floor={stats.floor_price} {stats.currency}, "
+                f"avg={stats.average_price} {stats.currency}, "
+                f"floor_ton={stats.floor_price_ton}, avg_ton={stats.average_price_ton}"
+            )
+
+            return stats
+
+        except Exception as e:
+            logger.error(f"Error fetching gift stats for {slug}: {e}")
+            return None
 
     async def get_reference_price_ton(self, slug: str) -> Optional[Decimal]:
         """Get reference price in TON for profit calculation.

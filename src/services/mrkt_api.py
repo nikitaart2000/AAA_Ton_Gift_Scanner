@@ -44,49 +44,44 @@ class MRKTApiService:
         if self._init_data and time.time() < self._init_data_expires:
             return True
 
-        # Use shared Telegram client with its lock
-        async with tg_client_manager.lock:
-            # Double-check after acquiring lock
-            if self._init_data and time.time() < self._init_data_expires:
-                return True
+        # get_client() handles its own locking internally
+        client = await tg_client_manager.get_client()
+        if not client:
+            return False
 
-            client = await tg_client_manager.get_client()
-            if not client:
+        try:
+            # Request Web View for MRKT
+            result = await client(RequestWebViewRequest(
+                peer='mrkt',
+                bot='mrkt',
+                platform='android',
+                url=self.webapp_url
+            ))
+
+            if not result.url:
+                logger.warning("No URL in MRKT WebView response")
                 return False
 
-            try:
-                # Request Web View for MRKT
-                result = await client(RequestWebViewRequest(
-                    peer='mrkt',
-                    bot='mrkt',
-                    platform='android',
-                    url=self.webapp_url
-                ))
+            # Parse init data from URL fragment
+            parsed = urllib.parse.urlparse(result.url)
+            fragment = parsed.fragment or ""
 
-                if not result.url:
-                    logger.warning("No URL in MRKT WebView response")
-                    return False
+            if 'tgWebAppData=' in fragment:
+                # Extract tgWebAppData value
+                params = urllib.parse.parse_qs(fragment)
+                if 'tgWebAppData' in params:
+                    self._init_data = params['tgWebAppData'][0]
+                    # Init data is valid for ~1 hour, refresh every 30 min
+                    self._init_data_expires = time.time() + 1800
+                    logger.info("MRKT init data refreshed")
+                    return True
 
-                # Parse init data from URL fragment
-                parsed = urllib.parse.urlparse(result.url)
-                fragment = parsed.fragment or ""
+            logger.warning("Could not parse MRKT init data from URL")
+            return False
 
-                if 'tgWebAppData=' in fragment:
-                    # Extract tgWebAppData value
-                    params = urllib.parse.parse_qs(fragment)
-                    if 'tgWebAppData' in params:
-                        self._init_data = params['tgWebAppData'][0]
-                        # Init data is valid for ~1 hour, refresh every 30 min
-                        self._init_data_expires = time.time() + 1800
-                        logger.info("MRKT init data refreshed")
-                        return True
-
-                logger.warning("Could not parse MRKT init data from URL")
-                return False
-
-            except Exception as e:
-                logger.error(f"Failed to get MRKT init data: {e}")
-                return False
+        except Exception as e:
+            logger.error(f"Failed to get MRKT init data: {e}")
+            return False
 
     async def get_listing_id(self, slug: str) -> Optional[str]:
         """Get MRKT listing ID by gift slug.
