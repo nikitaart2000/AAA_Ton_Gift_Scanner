@@ -45,17 +45,22 @@ async def cmd_lookup(message: Message):
 
     try:
         # Perform lookup
+        logger.info(f"Handler: Starting lookup for {target}")
         report = await osint_service.lookup_user(target)
+        logger.info(f"Handler: Got report, error={report.error}")
 
         if report.error:
+            logger.info(f"Handler: Sending error message: {report.error}")
             await status_msg.edit_text(
                 f"❌ Ошибка: {report.error}",
                 parse_mode="HTML"
             )
+            logger.info("Handler: Error message sent")
             return
 
         # Format and send report
         report_text = report.format_telegram_message()
+        logger.info(f"Handler: Sending report ({len(report_text)} chars)")
 
         await status_msg.edit_text(
             report_text,
