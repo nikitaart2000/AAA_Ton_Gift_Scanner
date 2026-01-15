@@ -8,7 +8,7 @@ from aiogram.filters import Command
 from aiogram.fsm.storage.memory import MemoryStorage
 from src.config import settings
 from src.core.models import Alert
-from src.bot.handlers import start, alerts
+from src.bot.handlers import start, alerts, osint
 from src.bot.keyboards import get_main_menu
 from src.bot.whitelist import WhitelistMiddleware
 
@@ -41,6 +41,9 @@ class TelegramBot:
         self.dp.message.register(start.cmd_features, Command("features"))
         self.dp.message.register(start.cmd_stats, Command("stats"))
         self.dp.message.register(start.cmd_onchain, Command("onchain"))
+
+        # OSINT commands
+        self.dp.message.register(osint.cmd_lookup, Command("lookup", "osint", "whois"))
 
         # Callback handlers for inline buttons
         self.dp.callback_query.register(alerts.handle_mute, F.data.startswith("mute:"))
