@@ -36,25 +36,16 @@ class Marketplace(str, Enum):
     UNKNOWN = "unknown"
 
     def get_gift_url(self, gift_id: str) -> str:
-        """Get direct purchase URL for a gift on this marketplace.
+        """Get URL to view/buy a gift.
 
-        Uses Telegram Mini App deep links with startapp parameter
-        to open the specific listing directly in the marketplace.
+        Uses t.me/nft/<slug> which opens Telegram's native NFT viewer.
+        From there user can click through to any marketplace to buy.
+        This is the most reliable approach as marketplace deep links
+        use internal IDs that we don't have access to.
         """
-        # Deep links to actual marketplace listings (for buying)
-        urls = {
-            # Portals: t.me/portals/market?startapp=<gift_id>
-            "portals": f"https://t.me/portals/market?startapp={gift_id}",
-            # MRKT: t.me/mrkt/app?startapp=<gift_id>
-            "mrkt": f"https://t.me/mrkt/app?startapp={gift_id}",
-            # Tonnel: t.me/TonnelMarketBot/market?startapp=<gift_id>
-            "tonnel": f"https://t.me/TonnelMarketBot/market?startapp={gift_id}",
-            # GetGems: use their web interface
-            "getgems": f"https://getgems.io/nft/{gift_id}",
-            # Fragment: web interface
-            "fragment": f"https://fragment.com/gift/{gift_id}",
-        }
-        return urls.get(self.value, f"https://t.me/nft/{gift_id}")
+        # Telegram's native NFT viewer - works for all gifts
+        # Shows gift info and has buttons to open in marketplaces
+        return f"https://t.me/nft/{gift_id}"
 
 
 class ConfidenceLevel(str, Enum):
