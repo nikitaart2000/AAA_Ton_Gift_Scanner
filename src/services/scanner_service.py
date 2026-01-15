@@ -35,15 +35,16 @@ class ScannerService:
 
         self.running = True
 
-        # Start collectors
+        # Start collectors as background tasks (non-blocking)
         logger.info("Starting Swift Gifts + TON API collectors (Tonnel disabled due to Cloudflare)")
 
-        # Run both collectors concurrently
-        await asyncio.gather(
-            self.swift_collector.start(self.handle_market_event),
-            self.ton_api_collector.start(self.handle_market_event),
-        )
+        self._collector_tasks = [
+            asyncio.create_task(self.swift_collector.start(self.handle_market_event)),
+            asyncio.create_task(self.ton_api_collector.start(self.handle_market_event)),
+        ]
         # NOTE: Tonnel collector disabled - Cloudflare bypass unsuccessful
+
+        logger.info("Collectors started as background tasks")
 
     async def stop(self):
         """Stop the scanner service."""
