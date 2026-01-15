@@ -21,6 +21,7 @@ from src.services.telegram_client import tg_client_manager
 from src.services.ton_api import ton_api, NFTGift
 from src.services.fragment_metadata import fragment_metadata, FragmentGiftMetadata
 from src.services.getgems_api import getgems_api, GetGemsNFT
+from src.services.wallet_resolver import wallet_resolver, WalletMatch
 
 logger = logging.getLogger(__name__)
 
@@ -103,8 +104,9 @@ class OSINTReport:
     profile: UserProfile
     gifts_received: list[GiftInfo] = field(default_factory=list)
     stats: GiftStats = field(default_factory=GiftStats)
-    # TON blockchain data
-    ton_address: Optional[str] = None
+    # TON blockchain data - can have multiple wallets!
+    wallet_matches: list[WalletMatch] = field(default_factory=list)
+    ton_address: Optional[str] = None  # Primary wallet
     ton_balance: float = 0.0
     nft_gifts: list[NFTGift] = field(default_factory=list)
     nft_history: list[dict] = field(default_factory=list)  # NFT transfer history
@@ -200,9 +202,28 @@ class OSINTReport:
         lines.append(f"━━━━━━━━━━━━━━━━━━━━")
         lines.append(f"💎 <b>КОШЕЛЬКИ</b>")
 
+        # Show all discovered wallet connections
+        if self.wallet_matches:
+            lines.append("")
+            lines.append(f"💱 <b>Найдено связей:</b> {len(self.wallet_matches)}")
+            for i, match in enumerate(self.wallet_matches, 1):
+                source_icons = {
+                    "ton_dns": "🌐",
+                    "tonnel": "🔄",
+                    "fragment": "💎",
+                    "database": "📊"
+                }
+                icon = source_icons.get(match.source, "🔗")
+                conf = "✅" if match.confidence == "high" else "⚠️" if match.confidence == "medium" else "❓"
+                prefix = "└" if i == len(self.wallet_matches) else "├"
+                lines.append(f"{prefix} {icon} {match.source}: {conf}")
+                lines.append(f"│  <code>{match.wallet_address}</code>")
+                if match.extra_info:
+                    lines.append(f"│  <i>{match.extra_info}</i>")
+
         if self.ton_address:
             lines.append(f"")
-            lines.append(f"📍 <code>{self.ton_address}</code>")
+            lines.append(f"📍 <b>Основной:</b> <code>{self.ton_address}</code>")
             lines.append(f"💰 Баланс: <b>{self.ton_balance:.2f} TON</b>")
 
             # Links
@@ -390,20 +411,29 @@ class OSINTService:
             except Exception as e:
                 logger.warning(f"Failed to get gifts for user: {e}", exc_info=True)
 
-            # Get TON blockchain data
+            # Get TON blockchain data - using extended wallet resolver
+            wallet_matches = []
             ton_address = None
             ton_balance = 0.0
             nft_gifts = []
             nft_history = []
 
             try:
-                # Пробуем резолвить TON адрес через username
-                if profile.username:
-                    logger.info(f"OSINT: Resolving TON address for @{profile.username}")
-                    ton_address = await ton_api.resolve_domain(profile.username)
+                # Try to find wallets through multiple sources
+                if profile.username or profile.user_id:
+                    logger.info(f"OSINT: Resolving wallets for @{profile.username} / {profile.user_id}")
+                    wallet_matches = await wallet_resolver.resolve(
+                        username=profile.username,
+                        user_id=profile.user_id
+                    )
+                    logger.info(f"OSINT: Found {len(wallet_matches)} wallet connections")
 
-                    if ton_address:
-                        logger.info(f"OSINT: Found TON address: {ton_address}")
+                    # Use the best match as primary wallet
+                    if wallet_matches:
+                        ton_address = wallet_matches[0].wallet_address
+                        logger.info(f"OSINT: Primary wallet: {ton_address} (source: {wallet_matches[0].source})")
+
+                        # Get wallet info
                         wallet_info = await ton_api.get_wallet_info(ton_address)
                         if wallet_info:
                             ton_balance = wallet_info.balance
@@ -421,7 +451,7 @@ class OSINTService:
                             nft_history = parsed
                             logger.info(f"OSINT: Got {len(nft_history)} NFT events")
                     else:
-                        logger.info(f"OSINT: No TON address found for @{profile.username}")
+                        logger.info(f"OSINT: No wallet connections found for @{profile.username}")
 
             except Exception as e:
                 logger.warning(f"Failed to get TON data: {e}", exc_info=True)
@@ -449,6 +479,7 @@ class OSINTService:
                 profile=profile,
                 gifts_received=gifts_received,
                 stats=stats,
+                wallet_matches=wallet_matches,
                 ton_address=ton_address,
                 ton_balance=ton_balance,
                 nft_gifts=nft_gifts,
