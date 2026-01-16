@@ -24,41 +24,43 @@ async def get_alert_keyboard(alert: Alert) -> InlineKeyboardMarkup:
     """Create inline keyboard for alert."""
     buttons = []
 
-    # Row 1: Main marketplace button (where the item is listed)
+    # Row 1: Main marketplace button (where the item is listed) - DIRECT LISTING LINK
     if alert.marketplace:
-        main_url = alert.marketplace_url
         label = MARKETPLACE_LABELS.get(alert.marketplace, alert.marketplace.value.upper())
+        listing_id = None
 
-        # Для MRKT пытаемся получить прямую ссылку на листинг
+        # Для MRKT получаем listing_id через API
         if alert.marketplace == Marketplace.MRKT:
             try:
                 listing_id = await mrkt_api.get_listing_id(alert.gift_id)
                 if listing_id:
-                    main_url = f"https://t.me/mrkt/app?startapp={listing_id}"
                     logger.debug(f"Got MRKT listing ID for {alert.gift_id}: {listing_id}")
             except Exception as e:
                 logger.warning(f"Failed to get MRKT listing ID: {e}")
+
+        # Get actual marketplace URL (not TG stats!)
+        main_url = alert.marketplace.get_gift_url(alert.gift_id, listing_id)
 
         if main_url:
             buttons.append([
                 InlineKeyboardButton(text=f"🎁 Открыть в {label}", url=main_url)
             ])
 
-    # Row 2: Actions (favorites + mute)
+    # Row 2: TG Stats + Actions
+    tg_stats_url = Marketplace.get_telegram_stats_url(alert.gift_id)
     buttons.append([
+        InlineKeyboardButton(text="📊 TG Статистика", url=tg_stats_url),
         InlineKeyboardButton(
             text="⭐ В избранное", callback_data=f"watch:{alert.asset_key}"
         ),
+    ])
+
+    # Row 3: Mute + Fragment
+    fragment_url = f"https://fragment.com/gift/{alert.gift_id}"
+    buttons.append([
         InlineKeyboardButton(
             text="🔇 Заглушить 2ч", callback_data=f"mute:{alert.asset_key}:2h"
         ),
-    ])
-
-    # Row 3: Additional marketplaces for info
-    tonnel_url = f"https://t.me/TonnelMarketBot/market?startapp={alert.gift_id}"
-    fragment_url = f"https://fragment.com/gift/{alert.gift_id}"
-    buttons.append([
-        InlineKeyboardButton(text="🔍 Tonnel", url=tonnel_url),
         InlineKeyboardButton(text="💎 Fragment", url=fragment_url),
     ])
 

@@ -107,6 +107,9 @@ class GiftAssetCache:
         self._backdrop_floors: dict[str, BackdropFloor] = {}  # backdrop -> floor data
         self._provider_history: dict[str, dict[str, Decimal]] = {}  # collection -> {provider: avg}
 
+        # NEW: Rarity cache by model (for all alerts, not just best deals)
+        self._model_rarity: dict[str, RarityData] = {}  # model_lower -> rarity
+
     async def start(self):
         """Start the cache update loop."""
         if self._running:
@@ -258,6 +261,7 @@ class GiftAssetCache:
     async def _process_best_deals(self, data: dict):
         """Process best deals response."""
         new_deals = []
+        new_rarity = {}  # Collect rarity for all models
 
         # Data is grouped by provider
         for provider, deals in data.items():
@@ -320,12 +324,21 @@ class GiftAssetCache:
                     )
                     new_deals.append(best_deal)
 
+                    # Save rarity by model for all alerts (not just best deals)
+                    if model and rarity.final_score > 0:
+                        model_key = model.lower()
+                        # Keep the highest rarity score for each model
+                        existing = new_rarity.get(model_key)
+                        if not existing or rarity.final_score > existing.final_score:
+                            new_rarity[model_key] = rarity
+
                 except Exception as e:
                     logger.debug(f"Failed to parse deal: {e}")
 
         # Sort by discount
         new_deals.sort(key=lambda d: d.discount_pct or 0, reverse=True)
         self._best_deals = new_deals[:50]  # Keep top 50
+        self._model_rarity.update(new_rarity)  # Update rarity cache
 
     async def _process_price_history(self, data: dict):
         """Process historical price data (7d)."""
@@ -462,6 +475,12 @@ class GiftAssetCache:
         """Get best deals for a specific provider."""
         deals = [d for d in self._best_deals if d.provider.lower() == provider.lower()]
         return deals[:limit]
+
+    def get_rarity(self, model: str) -> Optional[RarityData]:
+        """Get rarity data for a model (works for any model, not just best deals)."""
+        if not model:
+            return None
+        return self._model_rarity.get(model.lower())
 
     def check_arbitrage(
         self,

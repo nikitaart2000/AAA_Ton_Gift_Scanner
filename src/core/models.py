@@ -35,16 +35,39 @@ class Marketplace(str, Enum):
     FRAGMENT = "fragment"
     UNKNOWN = "unknown"
 
-    def get_gift_url(self, gift_id: str) -> str:
-        """Get URL to view/buy a gift.
+    def get_gift_url(self, gift_id: str, listing_id: str = None) -> str:
+        """Get URL to actual listing on marketplace.
 
-        Uses t.me/nft/<slug> which opens Telegram's native NFT viewer.
-        From there user can click through to any marketplace to buy.
-        This is the most reliable approach as marketplace deep links
-        use internal IDs that we don't have access to.
+        For MRKT, listing_id is required (fetched via API).
+        For others, uses direct marketplace URLs.
         """
-        # Telegram's native NFT viewer - works for all gifts
-        # Shows gift info and has buttons to open in marketplaces
+        if self == Marketplace.MRKT:
+            # MRKT requires listing_id from their API
+            if listing_id:
+                return f"https://t.me/mrkt/app?startapp={listing_id}"
+            # Fallback to TG stats if no listing_id
+            return f"https://t.me/nft/{gift_id}"
+
+        elif self == Marketplace.FRAGMENT:
+            return f"https://fragment.com/gift/{gift_id}"
+
+        elif self == Marketplace.TONNEL:
+            return f"https://t.me/TonnelMarketBot/market?startapp={gift_id}"
+
+        elif self == Marketplace.GETGEMS:
+            # GetGems uses TON DNS format
+            return f"https://getgems.io/nft/{gift_id}"
+
+        elif self == Marketplace.PORTALS:
+            # Portals mini app
+            return f"https://t.me/portals/app?startapp=gift_{gift_id}"
+
+        # Fallback for unknown
+        return f"https://t.me/nft/{gift_id}"
+
+    @staticmethod
+    def get_telegram_stats_url(gift_id: str) -> str:
+        """Get Telegram native NFT viewer URL (shows stats, floor, etc)."""
         return f"https://t.me/nft/{gift_id}"
 
 

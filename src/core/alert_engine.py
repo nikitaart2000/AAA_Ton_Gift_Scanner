@@ -30,7 +30,7 @@ class AlertEngine:
 
     def __init__(self):
         self.cooldown_seconds = 120  # 2 minutes per asset
-        self.max_alerts_per_hour = 50
+        self.max_alerts_per_hour = 100
         self.batch_window_seconds = 30
 
     async def evaluate_event(
@@ -194,13 +194,13 @@ class AlertEngine:
                         f"Arbitrage detected: {arbitrage_pct:.1f}% vs {arb_info['best_other_provider']}"
                     )
 
-            # Check best deals for rarity info (if this gift is in best deals)
-            for deal in giftasset_cache.get_best_deals(limit=50):
-                if deal.model and event.model and deal.model.lower() == event.model.lower():
-                    rarity_score = int(deal.rarity.final_score)
-                    rarity_tier = deal.rarity.tier
-                    has_premium_combo = deal.rarity.has_premium_attribute
-                    break
+            # Get rarity for this model (works for ANY model now, not just best deals)
+            if event.model:
+                rarity_data = giftasset_cache.get_rarity(event.model)
+                if rarity_data:
+                    rarity_score = int(rarity_data.final_score)
+                    rarity_tier = rarity_data.tier
+                    has_premium_combo = rarity_data.has_premium_attribute
 
         except Exception as e:
             logger.debug(f"GiftAsset enrichment failed: {e}")

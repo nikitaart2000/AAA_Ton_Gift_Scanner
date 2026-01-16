@@ -301,13 +301,33 @@ class TelegramBot:
                     score += 1
 
         # 4. Арбитраж между маркетами
+        arb_tip = None
         if alert.arbitrage_pct:
             arb = float(alert.arbitrage_pct)
+            # Найдём где продать дороже
+            if alert.other_provider_floors and alert.marketplace:
+                current_mp = alert.marketplace.value.upper()
+                best_sell = None
+                best_price = 0
+                for prov, price in alert.other_provider_floors.items():
+                    if prov.lower() != alert.marketplace.value.lower():
+                        if price > best_price:
+                            best_price = price
+                            best_sell = prov.upper()
+                if best_sell:
+                    arb_tip = f"купи на {current_mp}, продай на {best_sell}"
+
             if arb >= 15:
-                reasons_good.append(f"арбитраж {arb}% - можно перепродать дороже")
+                msg = f"арбитраж {arb:.0f}%"
+                if arb_tip:
+                    msg += f" ({arb_tip})"
+                reasons_good.append(msg)
                 score += 2
             elif arb >= 8:
-                reasons_good.append(f"есть арбитраж {arb}%")
+                msg = f"есть арбитраж {arb:.0f}%"
+                if arb_tip:
+                    msg += f" ({arb_tip})"
+                reasons_good.append(msg)
                 score += 1
 
         # 5. Редкость (GiftAsset)

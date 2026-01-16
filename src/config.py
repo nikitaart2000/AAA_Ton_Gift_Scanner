@@ -56,7 +56,7 @@ class Settings(BaseSettings):
 
     # Alert settings
     COOLDOWN_SECONDS: int = 120
-    MAX_ALERTS_PER_HOUR: int = 50
+    MAX_ALERTS_PER_HOUR: int = 100
     BATCH_WINDOW_SECONDS: int = 30
 
 
