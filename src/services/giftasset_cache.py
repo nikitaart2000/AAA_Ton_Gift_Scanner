@@ -55,6 +55,35 @@ class BestDeal:
     discount_pct: Optional[Decimal] = None  # vs avg market floor
 
 
+@dataclass
+class HistoricalPrice:
+    """Historical price data for validation."""
+    avg_7d: Optional[Decimal] = None  # 7-day average
+    avg_24h: Optional[Decimal] = None  # 24-hour average
+    min_7d: Optional[Decimal] = None
+    max_7d: Optional[Decimal] = None
+    by_provider: dict[str, Decimal] = field(default_factory=dict)  # provider -> avg price
+
+
+@dataclass
+class BackdropFloor:
+    """Floor price for a specific backdrop."""
+    backdrop: str
+    floor_price: Decimal
+    collection: Optional[str] = None
+
+
+@dataclass
+class PriceValidation:
+    """Result of price validation against historical data."""
+    is_good_deal: bool
+    discount_vs_7d_avg: Optional[Decimal] = None  # % below 7d average
+    discount_vs_provider_avg: Optional[Decimal] = None  # % below provider's avg
+    historical_avg: Optional[Decimal] = None
+    provider_avg: Optional[Decimal] = None
+    confidence: str = "low"  # low, medium, high based on data availability
+
+
 class GiftAssetCache:
     """Cache for GiftAsset market data.
 
@@ -72,6 +101,11 @@ class GiftAssetCache:
         self._running = False
         self._update_task: Optional[asyncio.Task] = None
         self._update_interval = 300  # 5 minutes
+
+        # NEW: Historical price data for validation
+        self._historical_prices: dict[str, HistoricalPrice] = {}  # collection -> historical
+        self._backdrop_floors: dict[str, BackdropFloor] = {}  # backdrop -> floor data
+        self._provider_history: dict[str, dict[str, Decimal]] = {}  # collection -> {provider: avg}
 
     async def start(self):
         """Start the cache update loop."""
@@ -124,12 +158,15 @@ class GiftAssetCache:
         try:
             logger.info("Updating GiftAsset cache...")
 
-            # Fetch floor prices and best deals in parallel
+            # Fetch all data in parallel
             floor_task = api.get_floor_prices(include_models=True)
             deals_task = api.get_best_deals()
+            history_task = api.get_price_history()  # NEW: 7d historical data
+            backdrop_task = api.get_backdrops_floor()  # NEW: backdrop floors
 
-            floor_data, deals_data = await asyncio.gather(
-                floor_task, deals_task, return_exceptions=True
+            floor_data, deals_data, history_data, backdrop_data = await asyncio.gather(
+                floor_task, deals_task, history_task, backdrop_task,
+                return_exceptions=True
             )
 
             # Process floor prices
@@ -144,10 +181,23 @@ class GiftAssetCache:
             elif isinstance(deals_data, Exception):
                 logger.error(f"Failed to fetch best deals: {deals_data}")
 
+            # NEW: Process historical prices (7d data)
+            if isinstance(history_data, dict) and history_data:
+                await self._process_price_history(history_data)
+            elif isinstance(history_data, Exception):
+                logger.debug(f"Failed to fetch price history: {history_data}")
+
+            # NEW: Process backdrop floors
+            if isinstance(backdrop_data, dict) and backdrop_data:
+                await self._process_backdrop_floors(backdrop_data)
+            elif isinstance(backdrop_data, Exception):
+                logger.debug(f"Failed to fetch backdrop floors: {backdrop_data}")
+
             self._last_update = datetime.now(timezone.utc)
             logger.info(
                 f"GiftAsset cache updated: {len(self._floor_prices)} models, "
-                f"{len(self._best_deals)} deals"
+                f"{len(self._best_deals)} deals, {len(self._historical_prices)} historical, "
+                f"{len(self._backdrop_floors)} backdrops"
             )
 
         except Exception as e:
@@ -277,6 +327,108 @@ class GiftAssetCache:
         new_deals.sort(key=lambda d: d.discount_pct or 0, reverse=True)
         self._best_deals = new_deals[:50]  # Keep top 50
 
+    async def _process_price_history(self, data: dict):
+        """Process historical price data (7d)."""
+        new_history = {}
+        new_provider_history = {}
+
+        # Data structure varies - handle both list and dict
+        items = data if isinstance(data, list) else [data]
+        if isinstance(data, dict) and not any(k in data for k in ['collection_name', '24h', '7d']):
+            # Nested dict structure
+            items = list(data.values()) if data else []
+
+        for item in items:
+            try:
+                collection = item.get("collection_name", "")
+                if not collection:
+                    continue
+
+                # Parse 7d data
+                data_7d = item.get("7d", [])
+                data_24h = item.get("24h", [])
+
+                hist = HistoricalPrice()
+
+                # Calculate 7d average from daily data
+                if data_7d and isinstance(data_7d, list):
+                    prices_7d = []
+                    for day in data_7d:
+                        if isinstance(day, dict):
+                            price = day.get("price") or day.get("avg_price")
+                            if price:
+                                prices_7d.append(Decimal(str(price)))
+                    if prices_7d:
+                        hist.avg_7d = sum(prices_7d) / len(prices_7d)
+                        hist.min_7d = min(prices_7d)
+                        hist.max_7d = max(prices_7d)
+
+                # Calculate 24h average from hourly data
+                if data_24h and isinstance(data_24h, list):
+                    prices_24h = []
+                    for hour in data_24h:
+                        if isinstance(hour, dict):
+                            price = hour.get("price") or hour.get("avg_price")
+                            if price:
+                                prices_24h.append(Decimal(str(price)))
+                    if prices_24h:
+                        hist.avg_24h = sum(prices_24h) / len(prices_24h)
+
+                # Parse per-provider current prices
+                provider_prices = {}
+                for key in ["getgems", "mrkt", "portals", "tonnel", "fragment"]:
+                    provider_data = item.get(key)
+                    if provider_data:
+                        price = None
+                        if isinstance(provider_data, dict):
+                            price = provider_data.get("price") or provider_data.get("floor")
+                        elif isinstance(provider_data, (int, float, str)):
+                            price = provider_data
+                        if price:
+                            provider_prices[key] = Decimal(str(price))
+                            hist.by_provider[key] = Decimal(str(price))
+
+                if hist.avg_7d or hist.avg_24h or hist.by_provider:
+                    new_history[collection] = hist
+                    if provider_prices:
+                        new_provider_history[collection] = provider_prices
+
+            except Exception as e:
+                logger.debug(f"Failed to parse price history item: {e}")
+
+        self._historical_prices = new_history
+        self._provider_history = new_provider_history
+        logger.debug(f"Loaded {len(new_history)} historical price records")
+
+    async def _process_backdrop_floors(self, data: dict):
+        """Process backdrop floor prices."""
+        new_backdrops = {}
+
+        # Handle various response structures
+        items = data if isinstance(data, list) else [data]
+        if isinstance(data, dict):
+            # Could be {backdrop: floor} or {collection: {backdrop: floor}}
+            for key, value in data.items():
+                if isinstance(value, dict):
+                    # Nested: collection -> backdrops
+                    for backdrop, floor in value.items():
+                        if floor and isinstance(floor, (int, float, str)):
+                            bd_key = f"{key}:{backdrop}" if key else backdrop
+                            new_backdrops[bd_key] = BackdropFloor(
+                                backdrop=backdrop,
+                                floor_price=Decimal(str(floor)),
+                                collection=key if key else None
+                            )
+                elif isinstance(value, (int, float)):
+                    # Simple: backdrop -> floor
+                    new_backdrops[key] = BackdropFloor(
+                        backdrop=key,
+                        floor_price=Decimal(str(value))
+                    )
+
+        self._backdrop_floors = new_backdrops
+        logger.debug(f"Loaded {len(new_backdrops)} backdrop floors")
+
     # ==================== Public API ====================
 
     def get_model_floor(self, collection: str, model: str) -> Optional[MarketFloorData]:
@@ -359,9 +511,117 @@ class GiftAssetCache:
             "models_cached": len(self._floor_prices),
             "collections_cached": len(self._collection_floors),
             "deals_cached": len(self._best_deals),
+            "historical_cached": len(self._historical_prices),
+            "backdrops_cached": len(self._backdrop_floors),
             "last_update": self._last_update.isoformat() if self._last_update else None,
             "is_running": self._running,
         }
+
+    # ==================== Historical Price Validation ====================
+
+    def get_historical_price(self, collection: str) -> Optional[HistoricalPrice]:
+        """Get historical price data for a collection."""
+        return self._historical_prices.get(collection)
+
+    def get_backdrop_floor(self, backdrop: str, collection: Optional[str] = None) -> Optional[Decimal]:
+        """Get floor price for a backdrop."""
+        if collection:
+            key = f"{collection}:{backdrop}"
+            if key in self._backdrop_floors:
+                return self._backdrop_floors[key].floor_price
+
+        # Try direct lookup
+        if backdrop in self._backdrop_floors:
+            return self._backdrop_floors[backdrop].floor_price
+
+        # Try case-insensitive
+        backdrop_lower = backdrop.lower()
+        for key, bd in self._backdrop_floors.items():
+            if bd.backdrop.lower() == backdrop_lower:
+                return bd.floor_price
+
+        return None
+
+    def get_all_backdrop_floors(self) -> dict[str, Decimal]:
+        """Get all backdrop floors as simple dict."""
+        return {bd.backdrop: bd.floor_price for bd in self._backdrop_floors.values()}
+
+    def validate_price(
+        self,
+        collection: str,
+        price: Decimal,
+        provider: Optional[str] = None,
+        backdrop: Optional[str] = None
+    ) -> PriceValidation:
+        """
+        Validate a price against historical data.
+
+        This is the KEY method for alert validation!
+
+        Returns:
+            PriceValidation with discount percentages and confidence level.
+        """
+        result = PriceValidation(is_good_deal=False, confidence="low")
+
+        # Try historical 7d data first
+        hist = self._historical_prices.get(collection)
+        if hist and hist.avg_7d:
+            result.historical_avg = hist.avg_7d
+
+            if price < hist.avg_7d:
+                result.discount_vs_7d_avg = ((hist.avg_7d - price) / hist.avg_7d) * 100
+                result.is_good_deal = result.discount_vs_7d_avg >= Decimal("5")  # 5%+ below avg
+                result.confidence = "high"
+
+        # Check provider-specific price
+        if provider and hist and hist.by_provider:
+            provider_lower = provider.lower()
+            provider_avg = hist.by_provider.get(provider_lower)
+            if provider_avg:
+                result.provider_avg = provider_avg
+                if price < provider_avg:
+                    result.discount_vs_provider_avg = ((provider_avg - price) / provider_avg) * 100
+                    if not result.is_good_deal:
+                        result.is_good_deal = result.discount_vs_provider_avg >= Decimal("5")
+                    if result.confidence == "low":
+                        result.confidence = "medium"
+
+        # Also check backdrop floor for Black Pack items
+        if backdrop:
+            backdrop_floor = self.get_backdrop_floor(backdrop, collection)
+            if backdrop_floor and price < backdrop_floor:
+                # Below backdrop floor is always interesting
+                if not result.is_good_deal:
+                    discount = ((backdrop_floor - price) / backdrop_floor) * 100
+                    result.is_good_deal = discount >= Decimal("3")
+                if result.confidence == "low":
+                    result.confidence = "medium"
+
+        return result
+
+    def get_validated_discount(
+        self,
+        collection: str,
+        price: Decimal,
+        provider: Optional[str] = None
+    ) -> Optional[Decimal]:
+        """
+        Quick method to get discount % vs 7d average.
+
+        Returns None if no historical data available.
+        """
+        hist = self._historical_prices.get(collection)
+        if not hist:
+            return None
+
+        reference_price = hist.avg_7d
+        if not reference_price and provider:
+            reference_price = hist.by_provider.get(provider.lower())
+
+        if reference_price and reference_price > 0:
+            return ((reference_price - price) / reference_price) * 100
+
+        return None
 
 
 # Global cache instance

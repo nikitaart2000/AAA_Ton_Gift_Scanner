@@ -205,6 +205,36 @@ class AlertEngine:
         except Exception as e:
             logger.debug(f"GiftAsset enrichment failed: {e}")
 
+        # NEW: Historical price validation (7d data from GiftAsset)
+        historical_discount_pct = None
+        historical_avg_price = None
+        validation_confidence = None
+
+        try:
+            collection = event.gift_name or event.model
+            if collection:
+                validation = giftasset_cache.validate_price(
+                    collection=collection,
+                    price=event.price,
+                    provider=event.marketplace.value if event.marketplace else None,
+                    backdrop=event.backdrop
+                )
+
+                if validation.discount_vs_7d_avg:
+                    historical_discount_pct = round(validation.discount_vs_7d_avg, 1)
+                if validation.historical_avg:
+                    historical_avg_price = validation.historical_avg
+                validation_confidence = validation.confidence
+
+                if validation.is_good_deal and validation.confidence in ("high", "medium"):
+                    logger.debug(
+                        f"Historical validation: {historical_discount_pct}% below 7d avg "
+                        f"(confidence: {validation_confidence})"
+                    )
+
+        except Exception as e:
+            logger.debug(f"Historical validation failed: {e}")
+
         # Create alert
         alert = Alert(
             asset_key=event.asset_key,
@@ -244,6 +274,10 @@ class AlertEngine:
             has_premium_combo=has_premium_combo,
             arbitrage_pct=arbitrage_pct,
             other_provider_floors=other_provider_floors,
+            # Historical price validation
+            historical_discount_pct=historical_discount_pct,
+            historical_avg_price=historical_avg_price,
+            validation_confidence=validation_confidence,
         )
 
         # Set cooldown
@@ -252,9 +286,14 @@ class AlertEngine:
         # Increment rate limit counter
         await self._increment_rate_limit(user_settings.user_id)
 
+        # Log with historical validation info if available
+        hist_info = ""
+        if historical_discount_pct and validation_confidence:
+            hist_info = f" | 7d: {historical_discount_pct}% ({validation_confidence})"
+
         logger.info(
             f"✅ Alert generated: {event.asset_key} | Profit: {profit_pct:.1f}% | "
-            f"Hotness: {hotness}/10 | Priority: {alert.is_priority}"
+            f"Hotness: {hotness}/10 | Priority: {alert.is_priority}{hist_info}"
         )
 
         return alert

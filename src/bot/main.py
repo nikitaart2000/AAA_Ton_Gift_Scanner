@@ -208,6 +208,16 @@ class TelegramBot:
                     if provider.lower() != (alert.marketplace.value if alert.marketplace else ""):
                         lines.append(f"│  └─ {provider}: {floor:.1f} TON")
 
+        # Historical price validation (7d data)
+        if alert.historical_discount_pct and alert.validation_confidence:
+            if alert.validation_confidence in ("high", "medium"):
+                lines.append("")
+                lines.append("<b>📈 ИСТОР. ВАЛИДАЦИЯ</b>")
+                conf_icon = "✅" if alert.validation_confidence == "high" else "🔸"
+                lines.append(f"├─ {conf_icon} <b>vs 7д AVG:</b> -{alert.historical_discount_pct}%")
+                if alert.historical_avg_price:
+                    lines.append(f"└─ <b>7д AVG:</b> {alert.historical_avg_price:.1f} TON")
+
         # Sales data
         if alert.sales_48h > 0:
             lines.append("")
@@ -235,6 +245,147 @@ class TelegramBot:
             }
             mp_name = marketplace_names.get(alert.marketplace.value, alert.marketplace.value.upper())
             lines.append(f"🏪 <i>Маркет: {mp_name}</i>")
+
+        # AI Verdict - анализ простым языком с матами
+        lines.append("")
+        lines.append("━━━━━━━━━━━━━━━━━━━━━")
+        verdict = self._generate_verdict(alert)
+        lines.append(verdict)
+
+        return "\n".join(lines)
+
+    def _generate_verdict(self, alert: Alert) -> str:
+        """Generate AI verdict with profanity - простой анализ сделки."""
+        reasons_good = []
+        reasons_bad = []
+        score = 0  # -10 to +10
+
+        # 1. Профит vs референс
+        if alert.profit_pct:
+            profit = float(alert.profit_pct)
+            if profit >= 30:
+                reasons_good.append(f"профит {profit}% - это пиздец как много")
+                score += 3
+            elif profit >= 20:
+                reasons_good.append(f"профит {profit}% - норм тема")
+                score += 2
+            elif profit >= 10:
+                reasons_good.append(f"профит {profit}% - есть куда расти")
+                score += 1
+            else:
+                reasons_bad.append(f"профит {profit}% - хуйня какая-то")
+                score -= 1
+
+        # 2. Уверенность
+        if alert.confidence_level:
+            conf = alert.confidence_level.value
+            if conf == "very_high":
+                reasons_good.append("данные железобетонные")
+                score += 2
+            elif conf == "high":
+                reasons_good.append("данные надежные")
+                score += 1
+            elif conf == "low":
+                reasons_bad.append("данных маловато, хз че там")
+                score -= 1
+
+        # 3. Историческая валидация (7д)
+        if alert.historical_discount_pct and alert.validation_confidence:
+            disc = float(alert.historical_discount_pct)
+            if alert.validation_confidence in ("high", "medium"):
+                if disc >= 20:
+                    reasons_good.append(f"на {disc}% ниже средней за неделю - ахуенно")
+                    score += 2
+                elif disc >= 10:
+                    reasons_good.append(f"на {disc}% ниже недельной средней")
+                    score += 1
+
+        # 4. Арбитраж между маркетами
+        if alert.arbitrage_pct:
+            arb = float(alert.arbitrage_pct)
+            if arb >= 15:
+                reasons_good.append(f"арбитраж {arb}% - можно перепродать дороже")
+                score += 2
+            elif arb >= 8:
+                reasons_good.append(f"есть арбитраж {arb}%")
+                score += 1
+
+        # 5. Редкость (GiftAsset)
+        if alert.rarity_score:
+            rarity = float(alert.rarity_score)
+            if rarity >= 80:
+                reasons_good.append(f"редкость {rarity}/100 - легенда нахуй")
+                score += 2
+            elif rarity >= 60:
+                reasons_good.append(f"редкость {rarity}/100 - норм")
+                score += 1
+            elif rarity <= 30:
+                reasons_bad.append(f"редкость {rarity}/100 - обычная хуйня")
+                score -= 1
+
+        # 6. Premium комбо
+        if alert.has_premium_combo:
+            reasons_good.append("premium комбо - ценится выше")
+            score += 1
+
+        # 7. Ликвидность
+        if alert.liquidity_score:
+            liq = float(alert.liquidity_score)
+            if liq >= 8:
+                reasons_good.append(f"ликвидность {liq}/10 - продашь быстро")
+                score += 1
+            elif liq <= 3:
+                reasons_bad.append(f"ликвидность {liq}/10 - хуй продашь")
+                score -= 2
+
+        # 8. Продажи за 48ч
+        if alert.sales_48h:
+            if alert.sales_48h >= 10:
+                reasons_good.append(f"{alert.sales_48h} продаж за 48ч - активно торгуется")
+                score += 1
+            elif alert.sales_48h <= 2:
+                reasons_bad.append(f"только {alert.sales_48h} продаж за 48ч - мертвяк")
+                score -= 1
+
+        # 9. Black Pack бонус
+        if alert.is_black_pack:
+            reasons_good.append("Black Pack - всегда в цене")
+            score += 1
+
+        # 10. Горячесть
+        if alert.hotness:
+            hot = float(alert.hotness)
+            if hot >= 8:
+                reasons_good.append("горячая тема прям сейчас")
+                score += 1
+
+        # Собираем вердикт
+        lines = ["<b>🤖 ВЕРДИКТ</b>"]
+
+        if reasons_good:
+            lines.append("")
+            lines.append("✅ <b>Плюсы:</b>")
+            for r in reasons_good[:4]:  # Макс 4 причины
+                lines.append(f"  • {r}")
+
+        if reasons_bad:
+            lines.append("")
+            lines.append("❌ <b>Минусы:</b>")
+            for r in reasons_bad[:3]:  # Макс 3 причины
+                lines.append(f"  • {r}")
+
+        # Итоговая рекомендация
+        lines.append("")
+        if score >= 5:
+            lines.append("💰 <b>ПОКУПАЙ НАХУЙ!</b> Отличная сделка, не тупи.")
+        elif score >= 3:
+            lines.append("👍 <b>Бери, норм тема.</b> Профит будет.")
+        elif score >= 1:
+            lines.append("🤔 <b>Можно брать</b>, но без фанатизма.")
+        elif score >= -1:
+            lines.append("😐 <b>Подумай, братик.</b> Не самый топ вариант.")
+        else:
+            lines.append("👎 <b>Хуйня, не бери.</b> Найдешь лучше.")
 
         return "\n".join(lines)
 

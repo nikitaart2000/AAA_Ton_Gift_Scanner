@@ -263,6 +263,59 @@ class GiftAssetAPI:
             params={"models": str(include_models).lower()}
         )
 
+    async def get_price_history(self, collection_name: Optional[str] = None) -> Optional[dict]:
+        """
+        Get historical price data: 24h hourly + 7d daily by provider.
+
+        This is the KEY endpoint for price validation!
+        Returns price trends over time per marketplace.
+        """
+        params = {}
+        if collection_name:
+            params["collection_name"] = collection_name
+
+        return await self._request("GET", "get_gifts_price_list_history", params=params)
+
+    async def get_backdrops_floor(self, v2: bool = True) -> Optional[dict]:
+        """
+        Get floor prices per backdrop (Black, Red, Blue, etc).
+
+        Critical for Black Pack pricing!
+        """
+        return await self._request(
+            "GET",
+            "get_gifts_backdrops_floor",
+            params={"v2": str(v2).lower()}
+        )
+
+    async def get_attribute_volumes(self) -> Optional[dict]:
+        """
+        Get sales volume statistics per backdrop/attribute.
+
+        Shows which backdrops have most liquidity.
+        """
+        return await self._request("GET", "get_attribute_volumes")
+
+    async def get_week_volumes(self) -> Optional[dict]:
+        """
+        Get weekly volume data: daily revenue, daily sales, peak hours.
+        """
+        return await self._request("GET", "get_collections_week_volumes")
+
+    async def get_month_volumes(self) -> Optional[dict]:
+        """
+        Get monthly volume data: daily/hourly metrics.
+        """
+        return await self._request("GET", "get_collections_month_volumes")
+
+    async def get_all_sales_history(self) -> Optional[dict]:
+        """
+        Get sales history from all providers.
+
+        Returns: collection_name, price, provider, telegram_gift_id, unix_timestamp
+        """
+        return await self._request("GET", "get_all_providers_sales_history")
+
     async def get_recent_sales(
         self,
         collection: Optional[str] = None,

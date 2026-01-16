@@ -287,6 +287,11 @@ class Alert(BaseModel):
     arbitrage_pct: Optional[Decimal] = None   # Discount vs other marketplaces
     other_provider_floors: Optional[Dict[str, Any]] = None  # {provider: floor_price}
 
+    # Historical price validation (7d data from GiftAsset)
+    historical_discount_pct: Optional[Decimal] = None  # % below 7d average
+    historical_avg_price: Optional[Decimal] = None     # 7d average price
+    validation_confidence: Optional[str] = None        # "high", "medium", "low"
+
     @property
     def marketplace_url(self) -> str:
         """Get URL to view this item on marketplace."""
