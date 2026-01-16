@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     TON_API_KEY: str = ""
     TON_API_BASE_URL: str = "https://tonapi.io"
 
+    # GiftAsset API (external OSINT data)
+    GIFTASSET_API_KEY: str = ""
+
     # Telegram Bot
     TELEGRAM_BOT_TOKEN: str = ""
     TELEGRAM_WHITELIST: str = ""

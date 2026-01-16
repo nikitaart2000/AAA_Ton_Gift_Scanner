@@ -22,6 +22,7 @@ from src.services.ton_api import ton_api, NFTGift
 from src.services.fragment_metadata import fragment_metadata, FragmentGiftMetadata
 from src.services.getgems_api import getgems_api, GetGemsNFT
 from src.services.wallet_resolver import wallet_resolver, WalletMatch
+from src.services.giftasset_api import get_giftasset_api, GiftAssetGift, UserGiftSummary
 from src.storage.postgres import db
 from src.storage.gift_history import GiftHistoryService
 
@@ -131,6 +132,10 @@ class OSINTReport:
     getgems_total_value: Optional[Decimal] = None
     # Fragment metadata for gifts
     fragment_metadata: list[FragmentGiftMetadata] = field(default_factory=list)
+    # GiftAsset API data (external OSINT)
+    giftasset_gifts: list[GiftAssetGift] = field(default_factory=list)
+    giftasset_collections: dict[str, int] = field(default_factory=dict)
+    giftasset_total_value: Optional[float] = None
     error: Optional[str] = None
 
     def format_telegram_message(self) -> str:
@@ -211,6 +216,45 @@ class OSINTReport:
             lines.append("")
             lines.append(f"🎁 <b>ЧЁ НАСОБИРАЛ</b>")
             lines.append(f"   <i>Хуй да нихуя - подарки спрятал или нету</i>")
+
+        # GiftAsset OSINT data (external API)
+        if self.giftasset_gifts or self.giftasset_collections:
+            lines.append("")
+            lines.append(f"━━━━━━━━━━━━━━━━━━━━")
+            lines.append(f"🔮 <b>GIFTASSET OSINT</b>")
+
+            if self.giftasset_total_value:
+                lines.append(f"💵 Стоимость профиля: ~{self.giftasset_total_value:.1f} TON")
+
+            if self.giftasset_collections:
+                lines.append(f"📦 Коллекций: {len(self.giftasset_collections)}")
+                # Show top collections
+                sorted_colls = sorted(
+                    self.giftasset_collections.items(),
+                    key=lambda x: x[1],
+                    reverse=True
+                )[:5]
+                for coll_name, count in sorted_colls:
+                    lines.append(f"├ {coll_name}: {count} шт.")
+
+            if self.giftasset_gifts:
+                lines.append(f"")
+                lines.append(f"🎁 <b>Подарки ({len(self.giftasset_gifts)} шт.):</b>")
+                # Show some gifts with floor prices
+                gifts_with_price = [g for g in self.giftasset_gifts if g.floor_price]
+                if gifts_with_price:
+                    sorted_gifts = sorted(gifts_with_price, key=lambda g: g.floor_price or 0, reverse=True)[:5]
+                    for i, gift in enumerate(sorted_gifts, 1):
+                        prefix = "└" if i == len(sorted_gifts) else "├"
+                        rarity = f" [{gift.rarity}]" if gift.rarity else ""
+                        lines.append(f"{prefix} {gift.name}{rarity} • {gift.floor_price:.2f} TON")
+                else:
+                    # Just show names
+                    for i, gift in enumerate(self.giftasset_gifts[:5], 1):
+                        prefix = "└" if i == min(5, len(self.giftasset_gifts)) else "├"
+                        lines.append(f"{prefix} {gift.name} ({gift.collection})")
+                    if len(self.giftasset_gifts) > 5:
+                        lines.append(f"   <i>...и ещё {len(self.giftasset_gifts) - 5}</i>")
 
         # SENT GIFTS section (from our database!)
         if self.gifts_sent or self.recipients:
@@ -579,6 +623,33 @@ class OSINTService:
             except Exception as e:
                 logger.warning(f"Failed to get sent gifts from database: {e}", exc_info=True)
 
+            # Get GiftAsset OSINT data (external API)
+            giftasset_gifts = []
+            giftasset_collections = {}
+            giftasset_total_value = None
+            try:
+                giftasset_api = get_giftasset_api()
+                if giftasset_api and profile.username:
+                    logger.info(f"OSINT: Fetching GiftAsset data for @{profile.username}")
+
+                    # Get user's gifts and collections in parallel
+                    import asyncio
+                    gifts_task = giftasset_api.get_user_gifts(profile.username, limit=100)
+                    collections_task = giftasset_api.get_user_collections_summary(profile.username)
+                    value_task = giftasset_api.get_user_profile_value(profile.username)
+
+                    giftasset_gifts, giftasset_collections, giftasset_total_value = await asyncio.gather(
+                        gifts_task, collections_task, value_task
+                    )
+
+                    logger.info(
+                        f"OSINT: GiftAsset - {len(giftasset_gifts)} gifts, "
+                        f"{len(giftasset_collections)} collections, "
+                        f"value={giftasset_total_value}"
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to get GiftAsset data: {e}", exc_info=True)
+
             return OSINTReport(
                 profile=profile,
                 gifts_received=gifts_received,
@@ -592,7 +663,10 @@ class OSINTService:
                 nft_history=nft_history,
                 getgems_nfts=getgems_nfts,
                 getgems_listed_count=getgems_listed_count,
-                getgems_total_value=getgems_total_value
+                getgems_total_value=getgems_total_value,
+                giftasset_gifts=giftasset_gifts,
+                giftasset_collections=giftasset_collections,
+                giftasset_total_value=giftasset_total_value
             )
 
         except Exception as e:
