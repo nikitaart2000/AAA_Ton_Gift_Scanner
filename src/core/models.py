@@ -280,6 +280,13 @@ class Alert(BaseModel):
     tg_max_price: Optional[Decimal] = None    # Расчётная макс. цена в TON
     tg_listed_count: Optional[int] = None     # Количество листингов
 
+    # GiftAsset enrichment (rarity & arbitrage)
+    rarity_score: Optional[int] = None        # Rarity score 0-100
+    rarity_tier: Optional[str] = None         # Common, Rare, Epic, etc.
+    has_premium_combo: bool = False           # Premium attribute combination
+    arbitrage_pct: Optional[Decimal] = None   # Discount vs other marketplaces
+    other_provider_floors: Optional[Dict[str, Any]] = None  # {provider: floor_price}
+
     @property
     def marketplace_url(self) -> str:
         """Get URL to view this item on marketplace."""
@@ -306,6 +313,7 @@ class Alert(BaseModel):
         "tg_floor_price",
         "tg_avg_price",
         "tg_max_price",
+        "arbitrage_pct",
         mode="before",
     )
     @classmethod

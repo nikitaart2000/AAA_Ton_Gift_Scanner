@@ -17,6 +17,7 @@ from src.core.models import (
 )
 from src.core.analytics import analytics_engine
 from src.services.telegram_stats import telegram_stats
+from src.services.giftasset_cache import giftasset_cache
 from src.storage.postgres import db
 from src.storage.redis_client import redis_client
 from sqlalchemy import text
@@ -164,6 +165,46 @@ class AlertEngine:
             user_settings, event, reference_source, tg_stats
         )
 
+        # Enrich with GiftAsset data (rarity & arbitrage)
+        rarity_score = None
+        rarity_tier = None
+        has_premium_combo = False
+        arbitrage_pct = None
+        other_provider_floors = None
+
+        try:
+            # Try to get arbitrage info from GiftAsset cache
+            if event.model and event.marketplace:
+                # Use gift_name as collection if available, otherwise model
+                collection = event.gift_name or event.model
+
+                arb_info = giftasset_cache.check_arbitrage(
+                    collection=collection,
+                    model=event.model,
+                    price=event.price,
+                    current_provider=event.marketplace.value
+                )
+
+                if arb_info and arb_info.get("is_arbitrage"):
+                    arbitrage_pct = arb_info["discount_pct"]
+                    other_provider_floors = {
+                        k: float(v) for k, v in arb_info.get("all_provider_floors", {}).items()
+                    }
+                    logger.debug(
+                        f"Arbitrage detected: {arbitrage_pct:.1f}% vs {arb_info['best_other_provider']}"
+                    )
+
+            # Check best deals for rarity info (if this gift is in best deals)
+            for deal in giftasset_cache.get_best_deals(limit=50):
+                if deal.model and event.model and deal.model.lower() == event.model.lower():
+                    rarity_score = int(deal.rarity.final_score)
+                    rarity_tier = deal.rarity.tier
+                    has_premium_combo = deal.rarity.has_premium_attribute
+                    break
+
+        except Exception as e:
+            logger.debug(f"GiftAsset enrichment failed: {e}")
+
         # Create alert
         alert = Alert(
             asset_key=event.asset_key,
@@ -197,6 +238,12 @@ class AlertEngine:
             tg_avg_price=tg_stats.average_price_ton if tg_stats else None,
             tg_max_price=tg_stats.estimated_max_price_ton if tg_stats else None,
             tg_listed_count=tg_stats.listed_count if tg_stats else None,
+            # GiftAsset enrichment
+            rarity_score=rarity_score,
+            rarity_tier=rarity_tier,
+            has_premium_combo=has_premium_combo,
+            arbitrage_pct=arbitrage_pct,
+            other_provider_floors=other_provider_floors,
         )
 
         # Set cooldown

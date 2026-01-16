@@ -8,7 +8,7 @@ from aiogram.filters import Command
 from aiogram.fsm.storage.memory import MemoryStorage
 from src.config import settings
 from src.core.models import Alert
-from src.bot.handlers import start, alerts, osint
+from src.bot.handlers import start, alerts, osint, market
 from src.bot.keyboards import get_main_menu
 from src.bot.whitelist import WhitelistMiddleware
 
@@ -44,6 +44,11 @@ class TelegramBot:
 
         # OSINT commands
         self.dp.message.register(osint.cmd_lookup, Command("lookup", "osint", "whois"))
+
+        # Market data commands (GiftAsset integration)
+        self.dp.message.register(market.cmd_deals, Command("deals"))
+        self.dp.message.register(market.cmd_market, Command("market"))
+        self.dp.message.register(market.cmd_arb, Command("arb", "arbitrage"))
 
         # Callback handlers for inline buttons
         self.dp.callback_query.register(alerts.handle_mute, F.data.startswith("mute:"))
@@ -176,6 +181,32 @@ class TelegramBot:
                 lines.append(f"├─ {floor_label}: {alert.floor_general} TON")
 
         lines.append(f"└─ <b>Ликвидность:</b> {alert.liquidity_score}/10")
+
+        # GiftAsset enrichment: Rarity & Arbitrage
+        if alert.rarity_score or alert.arbitrage_pct or alert.has_premium_combo:
+            lines.append("")
+            lines.append("<b>🔮 GIFTASSET</b>")
+
+            if alert.rarity_score:
+                tier_emoji = {
+                    "Legendary": "🌟",
+                    "Epic": "💜",
+                    "Rare": "💙",
+                    "Uncommon": "💚",
+                    "Common": "⚪",
+                }.get(alert.rarity_tier, "")
+                lines.append(f"├─ <b>Редкость:</b> {alert.rarity_score}/100 {tier_emoji}{alert.rarity_tier or ''}")
+
+            if alert.has_premium_combo:
+                lines.append(f"├─ <b>Premium комбо!</b> 💎")
+
+            if alert.arbitrage_pct:
+                lines.append(f"├─ <b>Арбитраж:</b> -{alert.arbitrage_pct:.0f}% vs другие маркеты")
+
+            if alert.other_provider_floors:
+                for provider, floor in alert.other_provider_floors.items():
+                    if provider.lower() != (alert.marketplace.value if alert.marketplace else ""):
+                        lines.append(f"│  └─ {provider}: {floor:.1f} TON")
 
         # Sales data
         if alert.sales_48h > 0:
