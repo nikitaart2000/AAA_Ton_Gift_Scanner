@@ -251,13 +251,15 @@ class GiftAssetCache:
                     if market_floor.avg_floor and market_floor.avg_floor > 0:
                         discount_pct = ((market_floor.avg_floor - price) / market_floor.avg_floor) * 100
 
-                    # Extract collection/model from attributes
+                    # Extract gift info from GiftAsset response
+                    # API uses telegram_gift_name, telegram_gift_title, etc.
                     attributes = gift_data.get("attributes", {})
-                    collection = gift_data.get("collection_name", "")
-                    model = attributes.get("MODEL", {}).get("value", "")
+                    gift_name = gift_data.get("telegram_gift_name") or gift_data.get("name", "Unknown")
+                    collection = gift_data.get("telegram_gift_title") or gift_data.get("collection_name", "")
+                    model = attributes.get("MODEL", {}).get("value", "") if attributes else ""
 
                     best_deal = BestDeal(
-                        gift_name=gift_data.get("name", "Unknown"),
+                        gift_name=gift_name,
                         collection=collection,
                         model=model,
                         price=price,
